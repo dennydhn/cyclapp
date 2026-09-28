@@ -1,18 +1,18 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.kapt)
 }
 
 android {
     namespace = "com.example.cyclapp"
-    compileSdk {
-        version = release(37)
-    }
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.example.cyclapp"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -51,4 +51,14 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // room database
+    val roomVersion = "2.6.1"
+    implementation("androidx.room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    kapt("androidx.room:room-compiler:$roomVersion")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlin:kotlinx-coroutines-android:1.7.3")
+
 }
