@@ -7,79 +7,65 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.cyclapp.data.db.DatabaseProvider
+import com.example.cyclapp.gpx.GpxExporter
 import com.example.cyclapp.ride.RideService
 import com.example.cyclapp.ui.theme.CyclappTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
-    // Launcher untuk meminta izin lokasi dan notifikasi secara otomatis
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         if (!locationGranted) {
-            Toast.makeText(this, "Izin lokasi diperlukan untuk merekam ride!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Izin lokasi diperlukan!", Toast.LENGTH_LONG).show()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Minta izin saat aplikasi pertama kali dibuka
         checkAndRequestPermissions()
-
         enableEdgeToEdge()
+
         setContent {
             CyclappTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RideControlScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                    RideControlScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
     }
 
     private fun checkAndRequestPermissions() {
-        val permissionsToRequest = mutableListOf(
+        val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-
-        // Izin notifikasi untuk Android 13+ (API 33)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        val missingPermissions = permissionsToRequest.filter {
+        val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-
-        if (missingPermissions.isNotEmpty()) {
-            requestPermissionLauncher.launch(missingPermissions.toTypedArray())
+        if (missing.isNotEmpty()) {
+            requestPermissionLauncher.launch(missing.toTypedArray())
         }
     }
 }
@@ -87,6 +73,32 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RideControlScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    // Storage Access Framework Launcher untuk simpan file GPX
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
+    ) { uri ->
+        uri?.let { destinationUri ->
+            coroutineScope.launch(Dispatchers.IO) {
+                val dao = DatabaseProvider.get(context).rideDao()
+                val rides = dao.getRides()
+                if (rides.isNotEmpty()) {
+                    val lastRide = rides.first()
+                    val points = dao.getTrackPoints(lastRide.id)
+                    val gpxData = GpxExporter.export("Ride_${lastRide.id}", points)
+
+                    context.contentResolver.openOutputStream(destinationUri)?.use { output ->
+                        output.write(gpxData.toByteArray())
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "File GPX berhasil disimpan!", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -95,39 +107,32 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "Cycle Tracker Control",
-            style = MaterialTheme.typography.headlineMedium
-        )
+        Text(text = "Cycle Tracker Control", style = MaterialTheme.typography.headlineMedium)
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Tombol Start Ride
+        // Tombol Start
         Button(
             onClick = {
                 val intent = Intent(context, RideService::class.java).apply {
                     action = RideService.ACTION_START
-                    putExtra(RideService.EXTRA_ROUTE, "Uji Coba Ride 1")
+                    putExtra(RideService.EXTRA_ROUTE, "Uji Coba Ride")
                 }
-
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
                 } else {
                     context.startService(intent)
                 }
-
                 Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(50.dp)
         ) {
-            Text(text = "Start Ride")
+            Text("Start Ride")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Tombol Stop Ride
+        // Tombol Stop
         Button(
             onClick = {
                 val intent = Intent(context, RideService::class.java).apply {
@@ -137,19 +142,32 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 Toast.makeText(context, "Ride Stopped!", Toast.LENGTH_SHORT).show()
             },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(50.dp)
         ) {
-            Text(text = "Stop Ride", color = Color.White)
+            Text("Stop Ride", color = Color.White)
         }
-    }
-}
 
-@Preview(showBackground = true)
-@Composable
-fun RideControlScreenPreview() {
-    CyclappTheme {
-        RideControlScreen()
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Tombol Export GPX (SAF Launcher)
+        OutlinedButton(
+            onClick = {
+                coroutineScope.launch(Dispatchers.IO) {
+                    val dao = DatabaseProvider.get(context).rideDao()
+                    val rides = dao.getRides()
+                    withContext(Dispatchers.Main) {
+                        if (rides.isEmpty()) {
+                            Toast.makeText(context, "Belum ada riwayat ride!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Memicu dialog penyimpan file Android
+                            createDocumentLauncher.launch("ride_export_${System.currentTimeMillis()}.gpx")
+                        }
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(50.dp)
+        ) {
+            Text("Export Last Ride to GPX")
+        }
     }
 }
