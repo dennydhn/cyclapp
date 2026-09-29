@@ -10,7 +10,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,12 +67,16 @@ class MainActivity : ComponentActivity() {
         checkAndRequestPermissions()
 
         setContent {
-            CyclappTheme {
+            var isDarkMode by remember { mutableStateOf(false) }
+            CyclappTheme(darkTheme = isDarkMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainAppNavigation()
+                    MainAppNavigation(
+                        isDarkMode = isDarkMode,
+                        onDarkModeChanged = { isDarkMode = it }
+                    )
                 }
             }
         }
@@ -97,7 +108,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainAppNavigation() {
+fun MainAppNavigation(
+    isDarkMode: Boolean,
+    onDarkModeChanged: (Boolean) -> Unit
+) {
     var currentScreen by remember { mutableStateOf(AppScreen.RIDE_CONTROL) }
     var selectedRideId by remember { mutableStateOf<Long?>(null) }
     val mapProvider = remember { ComposeMapProvider() }
@@ -106,6 +120,8 @@ fun MainAppNavigation() {
         AppScreen.RIDE_CONTROL -> {
             RideControlScreen(
                 mapProvider = mapProvider,
+                isDarkMode = isDarkMode,
+                onDarkModeChanged = onDarkModeChanged,
                 onOpenHistoryClicked = { currentScreen = AppScreen.RIDE_HISTORY }
             )
         }
@@ -114,7 +130,7 @@ fun MainAppNavigation() {
                 onBackClicked = { currentScreen = AppScreen.RIDE_CONTROL },
                 onRideSelected = { rideId ->
                     selectedRideId = rideId
-                    currentScreen = AppScreen.RIDE_DETAIL // Pindah ke Detail Analytics
+                    currentScreen = AppScreen.RIDE_DETAIL
                 }
             )
         }
@@ -132,6 +148,8 @@ fun MainAppNavigation() {
 @Composable
 fun RideControlScreen(
     mapProvider: ComposeMapProvider,
+    isDarkMode: Boolean,
+    onDarkModeChanged: (Boolean) -> Unit,
     onOpenHistoryClicked: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -139,6 +157,10 @@ fun RideControlScreen(
     val coroutineScope = rememberCoroutineScope()
     var isRecording by remember { mutableStateOf(false) }
     var isPaused by remember { mutableStateOf(false) }
+
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var showGpxDialog by remember { mutableStateOf(false) }
 
     val currentMetrics by ActiveRideRepository.metrics.collectAsState()
 
@@ -205,169 +227,77 @@ fun RideControlScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            // 1. Tampilan Peta Canvas Native
-            NativeMapView(
-                mapProvider = mapProvider,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // 2. Dashboard Metrik Melayang (Aktif saat recording)
-            if (isRecording) {
-                DashboardOverlay(
-                    metrics = currentMetrics,
-                    modifier = Modifier.align(Alignment.TopCenter)
-                )
-            }
-
-            // 3. Floating Action Button (Recenter)
-            if (!mapProvider.isAutoCenterEnabled) {
-                SmallFloatingActionButton(
-                    onClick = { mapProvider.recenter() },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp),
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text("📍 Recenter", modifier = Modifier.padding(horizontal = 8.dp))
-                }
-            }
-        }
-
-        // Panel Kontrol Aplikasi
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Sakelar Auto Pause (Enable / Disable)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "⏸ Auto Pause Mode",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Switch(
-                    checked = currentMetrics.isAutoPauseEnabled,
-                    onCheckedChange = { isEnabled ->
-                        val intent = Intent(context, RideService::class.java).apply {
-                            action = RideService.ACTION_SET_AUTO_PAUSE
-                            putExtra(RideService.EXTRA_AUTO_PAUSE_ENABLED, isEnabled)
-                        }
-                        context.startService(intent)
-                        Toast.makeText(
-                            context,
-                            if (isEnabled) "Auto Pause Diaktifkan" else "Auto Pause Dinonaktifkan",
-                            Toast.LENGTH_SHORT
-                        ).show()
+    // Settings Dialog
+    if (showSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = { Text("Setelan Aplikasi") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // Dark Mode Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Mode Malam (Dark Mode)")
+                        Switch(
+                            checked = isDarkMode,
+                            onCheckedChange = { onDarkModeChanged(it) }
+                        )
                     }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Baris 1: Tombol Start / Pause / Resume & Stop
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (!isRecording) {
-                    Button(
-                        onClick = {
-                            val intent = Intent(context, RideService::class.java).apply {
-                                action = RideService.ACTION_START
-                                putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())
-                            }
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                context.startForegroundService(intent)
-                            } else {
+                    // Auto Pause Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Auto Pause")
+                        Switch(
+                            checked = currentMetrics.isAutoPauseEnabled,
+                            onCheckedChange = { isEnabled ->
+                                val intent = Intent(context, RideService::class.java).apply {
+                                    action = RideService.ACTION_SET_AUTO_PAUSE
+                                    putExtra(RideService.EXTRA_AUTO_PAUSE_ENABLED, isEnabled)
+                                }
                                 context.startService(intent)
+                                Toast.makeText(
+                                    context,
+                                    if (isEnabled) "Auto Pause Diaktifkan" else "Auto Pause Dinonaktifkan",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
-                            isRecording = true
-                            isPaused = false
-                            mapProvider.recenter()
-                            Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.weight(1f).height(50.dp)
-                    ) {
-                        Text("Start")
-                    }
-                } else {
-                    Button(
-                        onClick = {
-                            val action = if (isPaused) RideService.ACTION_RESUME else RideService.ACTION_PAUSE
-                            val intent = Intent(context, RideService::class.java).apply {
-                                this.action = action
-                            }
-                            context.startService(intent)
-                            isPaused = !isPaused
-                            Toast.makeText(context, if (isPaused) "Ride Paused" else "Ride Resumed", Toast.LENGTH_SHORT).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isPaused) Color(0xFF388E3C) else Color(0xFFF57C00)),
-                        modifier = Modifier.weight(1f).height(50.dp)
-                    ) {
-                        Text(if (isPaused) "Resume" else "Pause", color = Color.White)
+                        )
                     }
                 }
-
-                Button(
-                    onClick = {
-                        val intent = Intent(context, RideService::class.java).apply {
-                            action = RideService.ACTION_STOP
-                        }
-                        context.startService(intent)
-                        isRecording = false
-                        isPaused = false
-                        Toast.makeText(context, "Ride Stopped!", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                    modifier = Modifier.weight(1f).height(50.dp)
-                ) {
-                    Text("Stop", color = Color.White)
+            },
+            confirmButton = {
+                TextButton(onClick = { showSettingsDialog = false }) {
+                    Text("Tutup")
                 }
             }
+        )
+    }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Baris 2: Import GPX / Delete GPX & Export GPX
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.weight(1f).height(48.dp)
-                ) {
-                    Text(if (mapProvider.importedRoutePoints.isNotEmpty()) "Replace GPX" else "Import GPX")
-                }
-
-                if (mapProvider.importedRoutePoints.isNotEmpty()) {
-                    OutlinedButton(
+    // GPX Import/Export Dialog
+    if (showGpxDialog) {
+        AlertDialog(
+            onDismissRequest = { showGpxDialog = false },
+            title = { Text("Import / Ekspor GPX") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
                         onClick = {
-                            mapProvider.removeImportedRoute()
-                            Toast.makeText(context, "Rute GPX dihapus dari peta!", Toast.LENGTH_SHORT).show()
+                            showGpxDialog = false
+                            openDocumentLauncher.launch(arrayOf("*/*"))
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFF0F0), contentColor = Color(0xFFD32F2F)),
-                        modifier = Modifier.weight(1f).height(48.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Delete GPX")
+                        Text("Import GPX")
                     }
-                } else {
-                    OutlinedButton(
+                    Button(
                         onClick = {
+                            showGpxDialog = false
                             coroutineScope.launch(Dispatchers.IO) {
                                 val dao = DatabaseProvider.get(context).rideDao()
                                 val rides = dao.getRides()
@@ -380,21 +310,258 @@ fun RideControlScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.weight(1f).height(48.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Export GPX")
+                        Text("Ekspor GPX Terakhir")
+                    }
+                    if (mapProvider.importedRoutePoints.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = {
+                                showGpxDialog = false
+                                mapProvider.removeImportedRoute()
+                                Toast.makeText(context, "Rute GPX dihapus dari peta!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD32F2F))
+                        ) {
+                            Text("Hapus Rute GPX di Peta")
+                        }
                     }
                 }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGpxDialog = false }) {
+                    Text("Tutup")
+                }
+            }
+        )
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // --- BAGIAN ATAS: PETA & OVERLAY (Top Bar & Dashboard) ---
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1.5f) // Map diperbesar ukurannya
+        ) {
+            // 1. Peta Canvas Native (Dengan dukungan Dark Mode)
+            NativeMapView(
+                mapProvider = mapProvider,
+                isDarkMode = isDarkMode,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // 2. Top Bar Overlay (Menu 3 Garis, Judul "Map/Tracking" - Jam di peta dihapus)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier
+                            .background(
+                                if (isDarkMode) Color(0xFF2C2C2C).copy(alpha = 0.85f)
+                                else Color.White.copy(alpha = 0.85f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu",
+                            tint = if (isDarkMode) Color.White else Color.DarkGray
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Setelan") },
+                            onClick = {
+                                menuExpanded = false
+                                showSettingsDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Import/Ekspor GPX") },
+                            onClick = {
+                                menuExpanded = false
+                                showGpxDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Riwayat Perekaman") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenHistoryClicked()
+                            }
+                        )
+                    }
+                }
+
+                // Judul Tengah
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isDarkMode) Color(0xFF2C2C2C).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                ) {
+                    Text(
+                        text = "Map/Tracking",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = if (isDarkMode) Color.White else Color.DarkGray
+                    )
+                }
+
+                // Spacer kosong di kanan atas untuk menyeimbangkan layout karena jam di peta dihapus
+                Spacer(modifier = Modifier.width(40.dp))
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // 3. Floating Action Button (Recenter)
+            if (!mapProvider.isAutoCenterEnabled) {
+                SmallFloatingActionButton(
+                    onClick = { mapProvider.recenter() },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 70.dp, end = 16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text("📍 Recenter", modifier = Modifier.padding(horizontal = 8.dp))
+                }
+            }
+        }
 
-            // Baris 3: Tombol Buka Riwayat Gowes
-            OutlinedButton(
-                onClick = onOpenHistoryClicked,
-                modifier = Modifier.fillMaxWidth().height(48.dp)
+        // --- BAGIAN BAWAH: DATA DASHBOARD & KONTROL TOMBOL ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("📋 Riwayat Gowes")
+                // Dashboard Metrik Data (Dengan dukungan Dark Mode & tanpa background pink)
+                DashboardOverlay(
+                    metrics = currentMetrics,
+                    isDarkMode = isDarkMode,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // --- TOMBOL KONTROL BAWAH: START/PAUSE/RESUME & STOP ---
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Tombol Kiri (Start / Pause / Resume)
+                    Button(
+                        onClick = {
+                            if (!isRecording) {
+                                val intent = Intent(context, RideService::class.java).apply {
+                                    action = RideService.ACTION_START
+                                    putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    context.startForegroundService(intent)
+                                } else {
+                                    context.startService(intent)
+                                }
+                                isRecording = true
+                                isPaused = false
+                                mapProvider.recenter()
+                                Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val action = if (isPaused) RideService.ACTION_RESUME else RideService.ACTION_PAUSE
+                                val intent = Intent(context, RideService::class.java).apply {
+                                    this.action = action
+                                }
+                                context.startService(intent)
+                                isPaused = !isPaused
+                                Toast.makeText(context, if (isPaused) "Ride Paused" else "Ride Resumed", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (!isRecording) Color(0xFF2E7D32) // Green for Start
+                            else if (isPaused) Color(0xFF388E3C) // Green for Resume
+                            else Color(0xFFF57C00) // Orange for Pause
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (!isRecording || isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                contentDescription = if (!isRecording) "Start" else if (isPaused) "Resume" else "Pause",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (!isRecording) "Start" else if (isPaused) "Resume" else "Pause",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Tombol Kanan (Stop - Kotak)
+                    Button(
+                        onClick = {
+                            val intent = Intent(context, RideService::class.java).apply {
+                                action = RideService.ACTION_STOP
+                            }
+                            context.startService(intent)
+                            isRecording = false
+                            isPaused = false
+                            Toast.makeText(context, "Ride Stopped!", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)), // Red for Stop
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Stop",
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
         }
     }

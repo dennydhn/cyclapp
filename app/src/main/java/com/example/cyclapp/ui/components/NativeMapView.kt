@@ -19,12 +19,16 @@ import com.example.cyclapp.map.ComposeMapProvider
 @Composable
 fun NativeMapView(
     mapProvider: ComposeMapProvider,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isDarkMode: Boolean = false
 ) {
+    val mapBackground = if (isDarkMode) Color(0xFF121212) else Color(0xFFE8ECEF)
+    val gridColor = if (isDarkMode) Color(0xFF252A30) else Color(0xFFD0D7DE)
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFFE8ECEF))
+            .background(mapBackground)
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     // 1. Gesture Zoom (Pinch)
@@ -62,7 +66,7 @@ fun NativeMapView(
         var x = 0f
         while (x < width) {
             drawLine(
-                color = Color(0xFFD0D7DE),
+                color = gridColor,
                 start = Offset(x, 0f),
                 end = Offset(x, height),
                 strokeWidth = 1f
@@ -72,7 +76,7 @@ fun NativeMapView(
         var y = 0f
         while (y < height) {
             drawLine(
-                color = Color(0xFFD0D7DE),
+                color = gridColor,
                 start = Offset(0f, y),
                 end = Offset(width, y),
                 strokeWidth = 1f
@@ -91,7 +95,7 @@ fun NativeMapView(
             }
             drawPath(
                 path = path,
-                color = Color(0xFF1565C0),
+                color = Color(0xFF42A5F5), // Brighter blue for visibility
                 style = Stroke(
                     width = 12f,
                     cap = StrokeCap.Round,
@@ -111,7 +115,7 @@ fun NativeMapView(
             }
             drawPath(
                 path = path,
-                color = Color(0xFFD32F2F),
+                color = Color(0xFFEF5350), // Brighter red for visibility
                 style = Stroke(
                     width = 14f,
                     cap = StrokeCap.Round,
@@ -134,12 +138,12 @@ fun NativeMapView(
 
             drawPath(
                 path = arrowPath,
-                color = Color.White,
+                color = if (isDarkMode) Color.Black else Color.White,
                 style = Stroke(width = 6f)
             )
             drawPath(
                 path = arrowPath,
-                color = Color(0xFF1976D2)
+                color = Color(0xFF2196F3)
             )
         }
     }
