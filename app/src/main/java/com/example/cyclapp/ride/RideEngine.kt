@@ -1,6 +1,9 @@
 package com.example.cyclapp.ride
 
 import android.location.Location
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.example.cyclapp.data.db.RideDao
 import com.example.cyclapp.data.db.RideEntity
 import com.example.cyclapp.data.db.TrackPointEntity
@@ -19,7 +22,8 @@ data class RideMetrics(
     val avgSpeedKmh: Double = 0.0,
     val elevationGainMeters: Double = 0.0,
     val gradientPercent: Double? = null,
-    val heartRate: Int? = null
+    val heartRate: Int? = null,
+    val isAutoPaused: Boolean = false
 )
 
 class RideEngine(
@@ -31,6 +35,10 @@ class RideEngine(
     var state = State.IDLE
         private set
     var rideId = 0L
+        private set
+
+    private val autoPauseController = AutoPauseController()
+    var isAutoPaused by mutableStateOf(false)
         private set
 
     private var previous: Location? = null
@@ -65,6 +73,8 @@ class RideEngine(
             )
         )
         state = State.RECORDING
+        autoPauseController.reset()
+        isAutoPaused = false
         previous = null
         distance = 0.0
         gain = 0.0
@@ -86,7 +96,31 @@ class RideEngine(
     }
 
     fun onLocation(location: Location) {
-        if (state != State.RECORDING) return
+        val speedMps = if (location.hasSpeed()) location.speed.toDouble() else 0.0
+        val now = System.currentTimeMillis()
+
+        // 1. Evaluasi Auto Pause / Resume
+        val action = autoPauseController.update(
+            speedMps = speedMps,
+            now = now,
+            isRecording = (state == State.RECORDING),
+            isPaused = (state == State.PAUSED)
+        )
+
+        when (action) {
+            AutoPauseController.Action.PAUSE -> {
+                pause()
+                isAutoPaused = true
+                return
+            }
+            AutoPauseController.Action.RESUME -> {
+                resume()
+                isAutoPaused = false
+            }
+            AutoPauseController.Action.NONE -> {
+                if (state != State.RECORDING) return
+            }
+        }
 
         val old = previous
         var gradient: Double? = null
@@ -127,7 +161,6 @@ class RideEngine(
         val speedToSave = if (location.hasSpeed()) location.speed.toDouble() else null
 
         // Perbarui StateFlow Metrik Real-Time untuk UI Dashboard
-        val now = System.currentTimeMillis()
         val durationSec = TimeUnit.MILLISECONDS.toSeconds(now - startTimeMs)
         val avgSpeedMps = if (speedCount > 0) speedSum / speedCount else 0.0
 
@@ -138,7 +171,8 @@ class RideEngine(
             avgSpeedKmh = avgSpeedMps * 3.6,         // Konversi m/s ke km/h
             elevationGainMeters = gain,
             gradientPercent = gradient,
-            heartRate = latestHr
+            heartRate = latestHr,
+            isAutoPaused = isAutoPaused
         )
 
         scope.launch(Dispatchers.IO) {
