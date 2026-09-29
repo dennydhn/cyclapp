@@ -3,6 +3,7 @@ package com.example.cyclapp
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -32,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.example.cyclapp.ride.RideMetrics
+import com.example.cyclapp.ui.components.DashboardOverlay
 
 class MainActivity : ComponentActivity() {
 
@@ -80,6 +83,9 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isRecording by remember { mutableStateOf(false) }
+
+    // State Metrik Gowes Real-Time
+    var currentMetrics by remember { mutableStateOf(RideMetrics()) }
 
     // MapProvider Native Compose Canvas
     val mapProvider = remember { ComposeMapProvider() }
@@ -130,9 +136,12 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    // Coroutine Loop untuk membaca Room DB & memperbarui garis rekaman gowes secara real-time
+    // Coroutine Loop untuk update Garis Merah di Peta DAN Metrik Gowes secara Real-Time
     LaunchedEffect(isRecording) {
         if (isRecording) {
+            val startTime = System.currentTimeMillis()
+            var totalDist = 0f
+
             while (isRecording) {
                 val dao = DatabaseProvider.get(context).rideDao()
                 val rides = dao.getRides()
@@ -143,14 +152,44 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
 
                     withContext(Dispatchers.Main) {
                         mapProvider.drawRecordedTrack(gpxPoints)
+
+                        // Kalkulasi Metrik Sederhana untuk Tampilan Real-time Dashboard
+                        if (gpxPoints.isNotEmpty()) {
+                            val durationSec = (System.currentTimeMillis() - startTime) / 1000L
+
+                            // Hitung jarak akumulatif
+                            if (gpxPoints.size >= 2) {
+                                totalDist = 0f
+                                for (i in 0 until gpxPoints.size - 1) {
+                                    val p1 = gpxPoints[i]
+                                    val p2 = gpxPoints[i + 1]
+                                    val results = FloatArray(1)
+                                    Location.distanceBetween(
+                                        p1.latitude, p1.longitude,
+                                        p2.latitude, p2.longitude,
+                                        results
+                                    )
+                                    totalDist += results[0]
+                                }
+                            }
+
+                            val avgSpeed = if (durationSec > 0) (totalDist / 1000f) / (durationSec / 3600f) else 0f
+
+                            currentMetrics = RideMetrics(
+                                durationSeconds = durationSec,
+                                distanceMeters = totalDist.toDouble(),
+                                currentSpeedKmh = avgSpeed.toDouble(), // Kecepatan estimasi saat ini
+                                avgSpeedKmh = avgSpeed.toDouble()
+                            )
+                        }
                     }
                 }
-                delay(1500L) // Refresh setiap 1.5 detik
+                delay(1000L) // Refresh Dashboard & Peta setiap 1 detik
             }
+        } else {
+            currentMetrics = RideMetrics() // Reset saat stop
         }
     }
-
-    // Di dalam MainActivity.kt -> RideControlScreen:
 
     Column(modifier = modifier.fillMaxSize()) {
         Box(
@@ -158,13 +197,21 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            // Tampilan Peta Canvas Native
+            // 1. Tampilan Peta Canvas
             NativeMapView(
                 mapProvider = mapProvider,
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Floating Action Button (Recenter) - Hanya muncul jika peta telah digeser manual
+            // 2. Dashboard Metrik Melayang (Hanya muncul saat recording/gowes aktif)
+            if (isRecording) {
+                DashboardOverlay(
+                    metrics = currentMetrics,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            }
+
+            // 3. Tombol Recenter (Top Right)
             if (!mapProvider.isAutoCenterEnabled) {
                 SmallFloatingActionButton(
                     onClick = { mapProvider.recenter() },
