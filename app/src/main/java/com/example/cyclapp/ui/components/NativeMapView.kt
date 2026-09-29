@@ -2,6 +2,7 @@ package com.example.cyclapp.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -12,9 +13,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.pointer.pointerInput
 import com.example.cyclapp.map.ComposeMapProvider
-import kotlin.math.max
-import kotlin.math.min
 
 @Composable
 fun NativeMapView(
@@ -25,19 +25,35 @@ fun NativeMapView(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFFE8ECEF))
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    // 1. Gesture Zoom (Pinch)
+                    val newScale = mapProvider.zoomScale * zoom
+                    mapProvider.zoomScale = newScale.coerceIn(10000f, 300000f) // Batas Zoom Min/Max
+
+                    // 2. Gesture Pan/Drag (Seret Peta)
+                    mapProvider.panOffsetX += pan.x
+                    mapProvider.panOffsetY += pan.y
+
+                    // Matikan Auto-Center saat pengguna menggeser peta secara manual
+                    if (pan.x != 0f || pan.y != 0f) {
+                        mapProvider.isAutoCenterEnabled = false
+                    }
+                }
+            }
     ) {
         val width = size.width
         val height = size.height
 
         val centerLat = mapProvider.userLat
         val centerLng = mapProvider.userLng
-
-        // Skala proyeksi koordinat ke pixel
-        val scale = 55000f
+        val scale = mapProvider.zoomScale
+        val panX = mapProvider.panOffsetX
+        val panY = mapProvider.panOffsetY
 
         fun latLngToOffset(lat: Double, lng: Double): Offset {
-            val x = width / 2f + ((lng - centerLng) * scale).toFloat()
-            val y = height / 2f - ((lat - centerLat) * scale).toFloat()
+            val x = width / 2f + ((lng - centerLng) * scale).toFloat() + panX
+            val y = height / 2f - ((lat - centerLat) * scale).toFloat() + panY
             return Offset(x, y)
         }
 
@@ -109,20 +125,18 @@ fun NativeMapView(
 
         rotate(degrees = mapProvider.userHeading, pivot = userOffset) {
             val arrowPath = Path().apply {
-                moveTo(userOffset.x, userOffset.y - 35f) // Ujung Panah
+                moveTo(userOffset.x, userOffset.y - 35f)
                 lineTo(userOffset.x + 22f, userOffset.y + 25f)
                 lineTo(userOffset.x, userOffset.y + 12f)
                 lineTo(userOffset.x - 22f, userOffset.y + 25f)
                 close()
             }
 
-            // Outer Border Putih
             drawPath(
                 path = arrowPath,
                 color = Color.White,
                 style = Stroke(width = 6f)
             )
-            // Isian Panah Biru
             drawPath(
                 path = arrowPath,
                 color = Color(0xFF1976D2)

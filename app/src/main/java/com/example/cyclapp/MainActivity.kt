@@ -150,20 +150,35 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    // Di dalam MainActivity.kt -> RideControlScreen:
+
     Column(modifier = modifier.fillMaxSize()) {
-        // Tampilan Peta Native Compose (Memuat NativeMapView Canvas)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
+            // Tampilan Peta Canvas Native
             NativeMapView(
                 mapProvider = mapProvider,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Floating Action Button (Recenter) - Hanya muncul jika peta telah digeser manual
+            if (!mapProvider.isAutoCenterEnabled) {
+                SmallFloatingActionButton(
+                    onClick = { mapProvider.recenter() },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text("📍 Recenter", modifier = Modifier.padding(horizontal = 8.dp))
+                }
+            }
         }
 
-        // Panel Kontrol (Tombol Start, Stop, Import GPX, Export GPX)
+        // Panel Kontrol
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -174,7 +189,6 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Tombol Start
                 Button(
                     onClick = {
                         val intent = Intent(context, RideService::class.java).apply {
@@ -187,6 +201,7 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                             context.startService(intent)
                         }
                         isRecording = true
+                        mapProvider.recenter()
                         Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.weight(1f).height(50.dp)
@@ -194,7 +209,6 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                     Text("Start")
                 }
 
-                // Tombol Stop
                 Button(
                     onClick = {
                         val intent = Intent(context, RideService::class.java).apply {
@@ -217,34 +231,47 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Tombol Import GPX
+                // Tombol Import / Auto-replace GPX
                 OutlinedButton(
                     onClick = {
                         openDocumentLauncher.launch(arrayOf("*/*"))
                     },
                     modifier = Modifier.weight(1f).height(48.dp)
                 ) {
-                    Text("Import GPX Route")
+                    Text(if (mapProvider.importedRoutePoints.isNotEmpty()) "Replace GPX" else "Import GPX")
                 }
 
-                // Tombol Export GPX
-                OutlinedButton(
-                    onClick = {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val dao = DatabaseProvider.get(context).rideDao()
-                            val rides = dao.getRides()
-                            withContext(Dispatchers.Main) {
-                                if (rides.isEmpty()) {
-                                    Toast.makeText(context, "Belum ada riwayat ride!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    createDocumentLauncher.launch("ride_export_${System.currentTimeMillis()}.gpx")
+                // Tombol Delete GPX (Hanya muncul jika ada GPX yang diload)
+                if (mapProvider.importedRoutePoints.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = {
+                            mapProvider.removeImportedRoute()
+                            Toast.makeText(context, "Rute GPX dihapus dari peta!", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFF0F0), contentColor = Color(0xFFD32F2F)),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Text("Delete GPX")
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val dao = DatabaseProvider.get(context).rideDao()
+                                val rides = dao.getRides()
+                                withContext(Dispatchers.Main) {
+                                    if (rides.isEmpty()) {
+                                        Toast.makeText(context, "Belum ada riwayat ride!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        createDocumentLauncher.launch("ride_export_${System.currentTimeMillis()}.gpx")
+                                    }
                                 }
                             }
-                        }
-                    },
-                    modifier = Modifier.weight(1f).height(48.dp)
-                ) {
-                    Text("Export GPX")
+                        },
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Text("Export GPX")
+                    }
                 }
             }
         }

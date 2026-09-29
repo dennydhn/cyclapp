@@ -19,6 +19,12 @@ class ComposeMapProvider : MapProvider {
     var recordedTrackPoints by mutableStateOf<List<GpxPoint>>(emptyList())
     var importedRoutePoints by mutableStateOf<List<GpxPoint>>(emptyList())
 
+    // State Transformasi Gesture Canvas (Zoom & Pan)
+    var zoomScale by mutableFloatStateOf(55000f)
+    var panOffsetX by mutableFloatStateOf(0f)
+    var panOffsetY by mutableFloatStateOf(0f)
+    var isAutoCenterEnabled by mutableStateOf(true)
+
     override fun showUserLocation(latitude: Double, longitude: Double) {
         if (userLat != latitude || userLng != longitude) {
             userHeading = calculateBearing(userLat, userLng, latitude, longitude)
@@ -31,7 +37,6 @@ class ComposeMapProvider : MapProvider {
         recordedTrackPoints = points
         if (points.isNotEmpty()) {
             val lastPoint = points.last()
-
             if (points.size >= 2) {
                 val prevPoint = points[points.size - 2]
                 userHeading = calculateBearing(
@@ -39,28 +44,39 @@ class ComposeMapProvider : MapProvider {
                     lastPoint.latitude, lastPoint.longitude
                 )
             }
-
-            // Perbarui lokasi pengguna sesuai koordinat GPS real-time
             userLat = lastPoint.latitude
             userLng = lastPoint.longitude
+
+            // Jika Auto-Center aktif, paksakan offset kembali ke 0 (fokus ke lokasi pengguna)
+            if (isAutoCenterEnabled) {
+                recenter()
+            }
         }
     }
 
     override fun drawImportedRoute(points: List<GpxPoint>) {
-        // HANYA simpan titik rute GPX untuk digambar sebagai garis biru,
-        // TIDAK MENUBAH userLat dan userLng pengguna.
+        // HANYA 1 FILE GPX: Langsung menimpa/replace rute yang tersimpan sebelumnya
         importedRoutePoints = points
+    }
+
+    // Menghapus rute GPX dari tampilan peta
+    fun removeImportedRoute() {
+        importedRoutePoints = emptyList()
+    }
+
+    fun recenter() {
+        panOffsetX = 0f
+        panOffsetY = 0f
+        isAutoCenterEnabled = true
     }
 
     override fun clearRoute() {
         recordedTrackPoints = emptyList()
         importedRoutePoints = emptyList()
+        recenter()
     }
 
-    override fun zoomToRoute(points: List<GpxPoint>) {
-        // Fungsi ini sengaja dikosongkan/dibiarkan tanpa mengubah userLat/userLng
-        // agar anak panah tetap berada murni pada koordinat GPS pengguna.
-    }
+    override fun zoomToRoute(points: List<GpxPoint>) {}
 
     private fun calculateBearing(
         startLat: Double, startLng: Double,
