@@ -17,7 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.cyclapp.data.db.DatabaseProvider
 import com.example.cyclapp.gpx.GpxExporter
@@ -244,6 +246,39 @@ fun RideControlScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Sakelar Auto Pause (Enable / Disable)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "⏸ Auto Pause Mode",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Switch(
+                    checked = currentMetrics.isAutoPauseEnabled,
+                    onCheckedChange = { isEnabled ->
+                        val intent = Intent(context, RideService::class.java).apply {
+                            action = RideService.ACTION_SET_AUTO_PAUSE
+                            putExtra(RideService.EXTRA_AUTO_PAUSE_ENABLED, isEnabled)
+                        }
+                        context.startService(intent)
+                        Toast.makeText(
+                            context,
+                            if (isEnabled) "Auto Pause Diaktifkan" else "Auto Pause Dinonaktifkan",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
             // Baris 1: Tombol Start / Pause / Resume & Stop
             Row(
                 modifier = Modifier.fillMaxWidth(),

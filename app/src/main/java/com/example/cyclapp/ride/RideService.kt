@@ -50,6 +50,10 @@ class RideService : Service() {
             }
             ACTION_PAUSE -> engine.pause()
             ACTION_RESUME -> engine.resume()
+            ACTION_SET_AUTO_PAUSE -> {
+                val enabled = intent.getBooleanExtra(EXTRA_AUTO_PAUSE_ENABLED, true)
+                engine.setAutoPauseEnabled(enabled)
+            }
             ACTION_STOP -> scope.launch {
                 tracker.stop()
                 hrManager?.disconnect()
@@ -95,7 +99,9 @@ class RideService : Service() {
         const val ACTION_START = "cycle.START"
         const val ACTION_PAUSE = "cycle.PAUSE"
         const val ACTION_RESUME = "cycle.RESUME"
+        const val ACTION_SET_AUTO_PAUSE = "cycle.SET_AUTO_PAUSE"
         const val ACTION_STOP = "cycle.STOP"
         const val EXTRA_ROUTE = "route_name"
+        const val EXTRA_AUTO_PAUSE_ENABLED = "auto_pause_enabled"
     }
 }

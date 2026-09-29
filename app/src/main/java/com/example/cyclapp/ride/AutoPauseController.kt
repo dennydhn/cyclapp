@@ -3,15 +3,25 @@ package com.example.cyclapp.ride
 class AutoPauseController(
     private val pauseSpeedMps: Double = 0.8,     // Kecepatan di bawah 0.8 m/s (~2.8 km/h) dianggap berhenti
     private val resumeSpeedMps: Double = 1.5,    // Kecepatan di atas 1.5 m/s (~5.4 km/h) dianggap mulai bergerak
-    private val pauseDelayMs: Long = 8000L        // Menunggu 8 detik sebelum benar-benar memicu Pause
+    private val pauseDelayMs: Long = 8000L,       // Menunggu 8 detik sebelum benar-benar memicu Pause
+    initialEnabled: Boolean = true
 ) {
     enum class Action { NONE, PAUSE, RESUME }
+
+    var isEnabled: Boolean = initialEnabled
+        set(value) {
+            field = value
+            if (!value) {
+                stoppedSince = null
+            }
+        }
 
     private var stoppedSince: Long? = null
 
     fun update(speedMps: Double, now: Long, isRecording: Boolean, isPaused: Boolean, isManualPaused: Boolean): Action {
-        if (isManualPaused) {
-            return Action.NONE // Jika di-pause secara manual, abaikan auto-resume
+        if (!isEnabled || isManualPaused) {
+            stoppedSince = null
+            return Action.NONE // Jika disabled atau di-pause secara manual, abaikan auto-pause/resume
         }
         if (isRecording && !isPaused) {
             // Cek kondisi Auto-Pause

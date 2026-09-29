@@ -23,7 +23,8 @@ data class RideMetrics(
     val altitudeMeters: Double? = null,
     val gradientPercent: Double? = null,
     val heartRate: Int? = null,
-    val isAutoPaused: Boolean = false
+    val isAutoPaused: Boolean = false,
+    val isAutoPauseEnabled: Boolean = true
 )
 
 class RideEngine(
@@ -68,6 +69,17 @@ class RideEngine(
 
     fun onHeartRate(bpm: Int) = setHeartRate(bpm)
 
+    fun setAutoPauseEnabled(enabled: Boolean) {
+        autoPauseController.isEnabled = enabled
+        _metrics.value = _metrics.value.copy(isAutoPauseEnabled = enabled)
+        ActiveRideRepository.updateMetrics(_metrics.value)
+
+        // Jika Auto Pause dinonaktifkan saat sedang Auto Paused, langsung Resume
+        if (!enabled && isAutoPaused && state == State.PAUSED) {
+            resume()
+        }
+    }
+
     suspend fun start(routeName: String? = null) {
         startTimeMs = System.currentTimeMillis()
         pausedDurationMs = 0L
@@ -91,7 +103,7 @@ class RideEngine(
         speedSum = 0.0
         speedCount = 0
         latestHr = null
-        _metrics.value = RideMetrics()
+        _metrics.value = RideMetrics(isAutoPauseEnabled = autoPauseController.isEnabled)
         ActiveRideRepository.updateMetrics(_metrics.value)
     }
 
@@ -139,7 +151,8 @@ class RideEngine(
             altitudeMeters = altitude,
             gradientPercent = gradient,
             heartRate = latestHr,
-            isAutoPaused = isAutoPaused
+            isAutoPaused = isAutoPaused,
+            isAutoPauseEnabled = autoPauseController.isEnabled
         )
         _metrics.value = metrics
         ActiveRideRepository.updateMetrics(metrics)
