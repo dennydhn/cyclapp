@@ -55,9 +55,12 @@ fun NativeMapView(
         val panX = mapProvider.panOffsetX
         val panY = mapProvider.panOffsetY
 
+        // Offset vertikal agar pusat fokus peta berada di area atas (tidak tertutup overlay melayang di bawah)
+        val verticalOffset = -150f
+
         fun latLngToOffset(lat: Double, lng: Double): Offset {
             val x = width / 2f + ((lng - centerLng) * scale).toFloat() + panX
-            val y = height / 2f - ((lat - centerLat) * scale).toFloat() + panY
+            val y = (height / 2f + verticalOffset) - ((lat - centerLat) * scale).toFloat() + panY
             return Offset(x, y)
         }
 

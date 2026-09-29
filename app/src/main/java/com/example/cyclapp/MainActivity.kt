@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,7 +23,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -146,6 +149,44 @@ fun MainAppNavigation(
 }
 
 @Composable
+fun CrosshairIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.DarkGray
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 2.dp.toPx()
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val radius = size.minDimension / 2.8f
+
+        // 1. Outer circle
+        drawCircle(
+            color = tint,
+            radius = radius,
+            center = center,
+            style = Stroke(width = strokeWidth)
+        )
+
+        // 2. Center dot
+        drawCircle(
+            color = tint,
+            radius = radius * 0.35f,
+            center = center
+        )
+
+        // 3. Crosshair ticks (top, bottom, left, right)
+        val tickLen = 5.dp.toPx()
+        // Top tick
+        drawLine(color = tint, start = Offset(center.x, center.y - radius - tickLen), end = Offset(center.x, center.y - radius), strokeWidth = strokeWidth)
+        // Bottom tick
+        drawLine(color = tint, start = Offset(center.x, center.y + radius), end = Offset(center.x, center.y + radius + tickLen), strokeWidth = strokeWidth)
+        // Left tick
+        drawLine(color = tint, start = Offset(center.x - radius - tickLen, center.y), end = Offset(center.x - radius, center.y), strokeWidth = strokeWidth)
+        // Right tick
+        drawLine(color = tint, start = Offset(center.x + radius, center.y), end = Offset(center.x + radius + tickLen, center.y), strokeWidth = strokeWidth)
+    }
+}
+
+@Composable
 fun RideControlScreen(
     mapProvider: ComposeMapProvider,
     isDarkMode: Boolean,
@@ -227,11 +268,17 @@ fun RideControlScreen(
         }
     }
 
-    // Settings Dialog
+    // Settings Dialog (Latar belakang abu-abu)
     if (showSettingsDialog) {
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
-            title = { Text("Setelan Aplikasi") },
+            containerColor = if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFEFEFEF),
+            title = {
+                Text(
+                    "Setelan Aplikasi",
+                    color = if (isDarkMode) Color.White else Color.Black
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     // Dark Mode Toggle
@@ -240,7 +287,10 @@ fun RideControlScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Mode Malam (Dark Mode)")
+                        Text(
+                            "Mode Malam (Dark Mode)",
+                            color = if (isDarkMode) Color.White else Color.Black
+                        )
                         Switch(
                             checked = isDarkMode,
                             onCheckedChange = { onDarkModeChanged(it) }
@@ -252,7 +302,10 @@ fun RideControlScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Auto Pause")
+                        Text(
+                            "Auto Pause",
+                            color = if (isDarkMode) Color.White else Color.Black
+                        )
                         Switch(
                             checked = currentMetrics.isAutoPauseEnabled,
                             onCheckedChange = { isEnabled ->
@@ -273,17 +326,26 @@ fun RideControlScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showSettingsDialog = false }) {
-                    Text("Tutup")
+                    Text(
+                        "Tutup",
+                        color = if (isDarkMode) Color(0xFF64B5F6) else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         )
     }
 
-    // GPX Import/Export Dialog
+    // GPX Import/Export Dialog (Latar belakang abu-abu)
     if (showGpxDialog) {
         AlertDialog(
             onDismissRequest = { showGpxDialog = false },
-            title = { Text("Import / Ekspor GPX") },
+            containerColor = if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFEFEFEF),
+            title = {
+                Text(
+                    "Import / Ekspor GPX",
+                    color = if (isDarkMode) Color.White else Color.Black
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
@@ -331,142 +393,131 @@ fun RideControlScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showGpxDialog = false }) {
-                    Text("Tutup")
+                    Text(
+                        "Tutup",
+                        color = if (isDarkMode) Color(0xFF64B5F6) else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         )
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // --- BAGIAN ATAS: PETA & OVERLAY (Top Bar & Dashboard) ---
+    // Root Box: Kanvas Peta mengisi seluruh layar, Dashboard & Tombol Melayang di atasnya
+    Box(modifier = modifier.fillMaxSize()) {
+        // 1. Peta Canvas Native mengisi SELURUH layar
+        NativeMapView(
+            mapProvider = mapProvider,
+            isDarkMode = isDarkMode,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // 2. Top Bar Overlay (Tombol Menu 3 Garis di pojok kiri atas)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1.5f) // Map diperbesar ukurannya
+                .padding(16.dp)
+                .align(Alignment.TopStart)
         ) {
-            // 1. Peta Canvas Native (Dengan dukungan Dark Mode)
-            NativeMapView(
-                mapProvider = mapProvider,
-                isDarkMode = isDarkMode,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // 2. Top Bar Overlay (Menu 3 Garis, Judul "Map/Tracking" - Jam di peta dihapus)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .align(Alignment.TopCenter),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box {
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier
-                            .background(
-                                if (isDarkMode) Color(0xFF2C2C2C).copy(alpha = 0.85f)
-                                else Color.White.copy(alpha = 0.85f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "Menu",
-                            tint = if (isDarkMode) Color.White else Color.DarkGray
+            Box {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier
+                        .background(
+                            if (isDarkMode) Color(0xFF2C2C2C).copy(alpha = 0.85f)
+                            else Color.White.copy(alpha = 0.85f),
+                            RoundedCornerShape(8.dp)
                         )
-                    }
-
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Setelan") },
-                            onClick = {
-                                menuExpanded = false
-                                showSettingsDialog = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Import/Ekspor GPX") },
-                            onClick = {
-                                menuExpanded = false
-                                showGpxDialog = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Riwayat Perekaman") },
-                            onClick = {
-                                menuExpanded = false
-                                onOpenHistoryClicked()
-                            }
-                        )
-                    }
-                }
-
-                // Judul Tengah
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isDarkMode) Color(0xFF2C2C2C).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.padding(horizontal = 4.dp)
+                        .size(40.dp)
                 ) {
-                    Text(
-                        text = "Map/Tracking",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = if (isDarkMode) Color.White else Color.DarkGray
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = if (isDarkMode) Color.White else Color.DarkGray
                     )
                 }
 
-                // Spacer kosong di kanan atas untuk menyeimbangkan layout karena jam di peta dihapus
-                Spacer(modifier = Modifier.width(40.dp))
-            }
-
-            // 3. Floating Action Button (Recenter)
-            if (!mapProvider.isAutoCenterEnabled) {
-                SmallFloatingActionButton(
-                    onClick = { mapProvider.recenter() },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 70.dp, end = 16.dp),
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                // Dropdown Menu dengan latar belakang abu-abu
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    modifier = Modifier.background(if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFEFEFEF))
                 ) {
-                    Text("📍 Recenter", modifier = Modifier.padding(horizontal = 8.dp))
+                    DropdownMenuItem(
+                        text = { Text("Setelan", color = if (isDarkMode) Color.White else Color.Black) },
+                        onClick = {
+                            menuExpanded = false
+                            showSettingsDialog = true
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Import/Ekspor GPX", color = if (isDarkMode) Color(0xFFE0E0E0) else Color.Black) },
+                        onClick = {
+                            menuExpanded = false
+                            showGpxDialog = true
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Riwayat Perekaman", color = if (isDarkMode) Color(0xFFE0E0E0) else Color.Black) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenHistoryClicked()
+                        }
+                    )
                 }
             }
         }
 
-        // --- BAGIAN BAWAH: DATA DASHBOARD & KONTROL TOMBOL ---
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-        ) {
-            Column(
+        // 3. Tombol Recenter (Crosshair Icon, Latar Abu-abu, Tanpa Teks) di kanan atas
+        if (!mapProvider.isAutoCenterEnabled) {
+            IconButton(
+                onClick = { mapProvider.recenter() },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .align(Alignment.TopEnd)
+                    .padding(top = 16.dp, end = 16.dp)
+                    .background(
+                        color = if (isDarkMode) Color(0xFF424242).copy(alpha = 0.85f) else Color(0xFFB0B0B0).copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .size(40.dp)
             ) {
-                // Dashboard Metrik Data (Dengan dukungan Dark Mode & tanpa background pink)
-                DashboardOverlay(
-                    metrics = currentMetrics,
-                    isDarkMode = isDarkMode,
-                    modifier = Modifier.fillMaxWidth()
+                CrosshairIcon(
+                    modifier = Modifier.size(24.dp),
+                    tint = if (isDarkMode) Color.White else Color.DarkGray
                 )
+            }
+        }
 
-                Spacer(modifier = Modifier.height(16.dp))
+        // 4. Panel Dashboard & Tombol Kontrol MELAYANG di bagian bawah atas Peta
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Dashboard Metrik Data Melayang
+            DashboardOverlay(
+                metrics = currentMetrics,
+                isDarkMode = isDarkMode,
+                modifier = Modifier.fillMaxWidth()
+            )
 
-                // --- TOMBOL KONTROL BAWAH: START/PAUSE/RESUME & STOP ---
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Tombol Kontrol (Start/Pause/Resume & Stop) Melayang di dalam Card
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkMode) Color(0xFF242424).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     // Tombol Kiri (Start / Pause / Resume)
                     Button(
@@ -502,27 +553,16 @@ fun RideControlScreen(
                         ),
                         modifier = Modifier
                             .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = if (!isRecording || isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                                contentDescription = if (!isRecording) "Start" else if (isPaused) "Resume" else "Pause",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (!isRecording) "Start" else if (isPaused) "Resume" else "Pause",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Icon(
+                            imageVector = if (!isRecording || isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                            contentDescription = if (!isRecording) "Start" else if (isPaused) "Resume" else "Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
 
                     // Tombol Kanan (Stop - Kotak)
@@ -539,27 +579,16 @@ fun RideControlScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)), // Red for Stop
                         modifier = Modifier
                             .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Stop",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Stop",
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
             }

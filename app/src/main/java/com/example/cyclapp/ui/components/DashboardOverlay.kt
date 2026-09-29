@@ -14,8 +14,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclapp.ride.RideMetrics
-import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
@@ -24,66 +22,41 @@ fun DashboardOverlay(
     modifier: Modifier = Modifier,
     isDarkMode: Boolean = false
 ) {
-    // State Jam Real-time (Time Now)
-    var currentTimeString by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        while (true) {
-            currentTimeString = timeFormat.format(Date())
-            delay(1000L) // Update setiap detik
-        }
-    }
-
-    val containerColor = if (isDarkMode) Color(0xFF1E1E1E).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f)
+    val containerColor = if (isDarkMode) Color(0xFF242424).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f)
     val textColor = if (isDarkMode) Color.White else Color(0xFF212121)
     val labelColor = if (isDarkMode) Color(0xFFB0B0B0) else Color.Gray
-    val timeColor = if (isDarkMode) Color(0xFFE0E0E0) else Color(0xFF424242)
-    val dividerColor = if (isDarkMode) Color(0xFF333333) else Color(0xFFE0E0E0)
+    val dividerColor = if (isDarkMode) Color(0xFF3A3A3A) else Color(0xFFE0E0E0)
     val speedColor = if (isDarkMode) Color(0xFF64B5F6) else Color(0xFF1976D2)
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        shape = RoundedCornerShape(16.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = containerColor
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
-            // Indikator Status Auto Paused & Jam Real-Time
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (metrics.isAutoPaused) {
+            // Indikator Status Auto Paused (jika aktif)
+            if (metrics.isAutoPaused) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
+                    horizontalArrangement = Arrangement.Start
+                ) {
                     Text(
                         text = "⏸ AUTO PAUSED",
                         color = Color(0xFFE65100),
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
                     )
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp))
                 }
-
-                // TIME NOW (Jam Saat Ini)
-                Text(
-                    text = "🕒 $currentTimeString",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = timeColor
-                )
             }
-
-            Spacer(modifier = Modifier.height(4.dp))
 
             // Baris Utama: Kecepatan Saat Ini (SPEED)
             Row(
@@ -100,28 +73,28 @@ fun DashboardOverlay(
                     )
                     Text(
                         text = String.format(Locale.US, "%.1f", metrics.currentSpeedKmh),
-                        fontSize = 40.sp,
+                        fontSize = 38.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = speedColor
                     )
                 }
                 Text(
                     text = "km/h",
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = labelColor,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
                     .background(dividerColor)
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Grid Metrik Tambahan
             // Baris 1: Distance, Duration, Avg Speed
@@ -151,7 +124,7 @@ fun DashboardOverlay(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Baris 2: Altitude, Gradient, Heart Rate
             Row(
