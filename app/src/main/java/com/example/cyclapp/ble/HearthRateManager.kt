@@ -3,11 +3,14 @@ package com.example.cyclapp.ble
 import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelUuid
 import android.util.Log
 import java.util.UUID
 
@@ -26,6 +29,8 @@ class HeartRateManager(
 
     private var bluetoothGatt: BluetoothGatt? = null
     private var connectedDevice: BluetoothDevice? = null
+    private var isScanning = false
+    private var isUserRequestedDisconnect = false
 
     private val HR_SERVICE_UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
     private val HR_MEASUREMENT_UUID = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
@@ -35,8 +40,9 @@ class HeartRateManager(
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
-            Log.d(TAG, "Device HR Ditemukan: ${device.name ?: "Unknown"} [${device.address}]")
-            onConnectionStateChanged("Ditemukan: ${device.name ?: "Sensor HR"}")
+            val deviceName = device.name ?: result.scanRecord?.deviceName ?: "Sensor HR"
+            Log.d(TAG, "Device HR Ditemukan: $deviceName [${device.address}]")
+            onConnectionStateChanged("Ditemukan: $deviceName")
 
             stopScan()
             connectToDevice(device)
@@ -44,6 +50,7 @@ class HeartRateManager(
 
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "Scan Gagal dengan error code: $errorCode")
+            isScanning = false
             onConnectionStateChanged("Scan Gagal ($errorCode)")
         }
     }
@@ -55,25 +62,28 @@ class HeartRateManager(
                 Log.d(TAG, "Terhubung ke GATT server. Meminta High Connection Priority...")
                 onConnectionStateChanged("Terhubung! Mengoptimalkan koneksi...")
 
-                // 1. Minta High Priority agar data dikirim cepat dan tidak putus-putus
                 gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
 
-                // Beri jeda sedikit (300ms) sebelum discoverServices agar chip BLE HP stabil
                 mainHandler.postDelayed({
-                    gatt.discoverServices()
+                    if (bluetoothGatt != null) {
+                        gatt.discoverServices()
+                    }
                 }, 300L)
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                Log.w(TAG, "Koneksi terputus. Mengatur reconnect...")
+                Log.w(TAG, "Koneksi GATT terputus. Status code: $status")
                 onConnectionStateChanged("Sinyal Terputus, Memulai ulang...")
 
-                gatt.close()
-                bluetoothGatt = null
+                closeGatt()
 
-                // 2. Auto Reconnect jika terputus tiba-tiba
-                connectedDevice?.let { device ->
+                if (!isUserRequestedDisconnect) {
+                    // Coba reconnect ke device yang pernah terhubung atau scan ulang
                     mainHandler.postDelayed({
-                        connectToDevice(device)
+                        if (!isUserRequestedDisconnect) {
+                            connectedDevice?.let { device ->
+                                connectToDevice(device)
+                            } ?: startScan()
+                        }
                     }, 2000L)
                 }
             }
@@ -91,23 +101,29 @@ class HeartRateManager(
 
                     val descriptor = characteristic.getDescriptor(CCCD_UUID)
                     descriptor?.let {
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             gatt.writeDescriptor(it, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                         } else {
+                            @Suppress("DEPRECATION")
                             it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            @Suppress("DEPRECATION")
                             gatt.writeDescriptor(it)
                         }
                     }
                     onConnectionStateChanged("Connected & Active")
                 } else {
+                    Log.e(TAG, "Service HR / Characteristic tidak ditemukan pada GATT server.")
                     onConnectionStateChanged("Service HR Tidak Lengkap")
                 }
+            } else {
+                Log.e(TAG, "onServicesDiscovered gagal dengan status $status")
             }
         }
 
         @Deprecated("Used for older Android APIs")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
             if (characteristic.uuid == HR_MEASUREMENT_UUID) {
+                @Suppress("DEPRECATION")
                 val bpm = HeartRateParser.parse(characteristic.value)
                 bpm?.let { onHeartRateReceived(it) }
             }
@@ -132,20 +148,39 @@ class HeartRateManager(
             return
         }
 
+        if (isScanning) {
+            Log.d(TAG, "Scan sudah berjalan.")
+            return
+        }
+
+        isUserRequestedDisconnect = false
         onConnectionStateChanged("Memindai Sensor HR...")
 
         val scanner = bluetoothAdapter?.bluetoothLeScanner
+        if (scanner == null) {
+            onConnectionStateChanged("BLE Scanner tidak tersedia")
+            return
+        }
+
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        // Pindai tanpa ScanFilter terlebih dahulu untuk memastikan sensor tertangkap
-        scanner?.startScan(null, settings, scanCallback)
+        // Pindai khusus perangkat yang memancarkan Service UUID Heart Rate (0x180D)
+        val filter = ScanFilter.Builder()
+            .setServiceUuid(ParcelUuid(HR_SERVICE_UUID))
+            .build()
+
+        isScanning = true
+        scanner.startScan(listOf(filter), settings, scanCallback)
     }
 
     @SuppressLint("MissingPermission")
     fun stopScan() {
-        bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
+        if (isScanning) {
+            bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback)
+            isScanning = false
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -153,12 +188,8 @@ class HeartRateManager(
         connectedDevice = device
         onConnectionStateChanged("Menghubungkan...")
 
-        // Batalkan gatt lama jika masih ada
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
-        bluetoothGatt = null
+        closeGatt()
 
-        // Sambung ulang menggunakan TRANSPORT_LE
         bluetoothGatt = device.connectGatt(
             context,
             false,
@@ -168,13 +199,24 @@ class HeartRateManager(
     }
 
     @SuppressLint("MissingPermission")
-    fun disconnect() {
-        connectedDevice = null
+    private fun closeGatt() {
         bluetoothGatt?.let { gatt ->
-            gatt.disconnect()
-            gatt.close()
+            try {
+                gatt.disconnect()
+                gatt.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saat menutup GATT", e)
+            }
         }
         bluetoothGatt = null
+    }
+
+    @SuppressLint("MissingPermission")
+    fun disconnect() {
+        isUserRequestedDisconnect = true
+        stopScan()
+        closeGatt()
+        connectedDevice = null
         onConnectionStateChanged("Disconnected")
     }
 }
