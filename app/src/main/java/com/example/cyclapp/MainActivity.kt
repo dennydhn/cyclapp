@@ -22,9 +22,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.cyclapp.data.db.DatabaseProvider
 import com.example.cyclapp.gpx.GpxExporter
+import com.example.cyclapp.gpx.GpxImporter
+import com.example.cyclapp.gpx.GpxPoint
+import com.example.cyclapp.map.ComposeMapProvider
 import com.example.cyclapp.ride.RideService
+import com.example.cyclapp.ui.components.NativeMapView
 import com.example.cyclapp.ui.theme.CyclappTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -74,8 +79,33 @@ class MainActivity : ComponentActivity() {
 fun RideControlScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var isRecording by remember { mutableStateOf(false) }
 
-    // Storage Access Framework Launcher untuk simpan file GPX
+    // MapProvider Native Compose Canvas
+    val mapProvider = remember { ComposeMapProvider() }
+
+    // Launcher SAF untuk Membuka / Import File GPX (Rute Biru)
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { selectedUri ->
+            coroutineScope.launch(Dispatchers.IO) {
+                val importedPoints = GpxImporter.parse(context, selectedUri)
+                withContext(Dispatchers.Main) {
+                    if (importedPoints.isNotEmpty()) {
+                        // Cukup gambar rute GPX tanpa memindahkan lokasi pengguna
+                        mapProvider.drawImportedRoute(importedPoints)
+
+                        Toast.makeText(context, "Berhasil memuat rute GPX (${importedPoints.size} titik)!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Gagal memuat file GPX!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // Launcher SAF untuk Menyimpan / Export GPX
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
     ) { uri ->
@@ -100,74 +130,123 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "Cycle Tracker Control", style = MaterialTheme.typography.headlineMedium)
+    // Coroutine Loop untuk membaca Room DB & memperbarui garis rekaman gowes secara real-time
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            while (isRecording) {
+                val dao = DatabaseProvider.get(context).rideDao()
+                val rides = dao.getRides()
+                if (rides.isNotEmpty()) {
+                    val currentRideId = rides.first().id
+                    val points = dao.getTrackPoints(currentRideId)
+                    val gpxPoints = points.map { GpxPoint(it.latitude, it.longitude, it.altitudeMeters, it.timestamp) }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Tombol Start
-        Button(
-            onClick = {
-                val intent = Intent(context, RideService::class.java).apply {
-                    action = RideService.ACTION_START
-                    putExtra(RideService.EXTRA_ROUTE, "Uji Coba Ride")
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-                Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) {
-            Text("Start Ride")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Tombol Stop
-        Button(
-            onClick = {
-                val intent = Intent(context, RideService::class.java).apply {
-                    action = RideService.ACTION_STOP
-                }
-                context.startService(intent)
-                Toast.makeText(context, "Ride Stopped!", Toast.LENGTH_SHORT).show()
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) {
-            Text("Stop Ride", color = Color.White)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Tombol Export GPX (SAF Launcher)
-        OutlinedButton(
-            onClick = {
-                coroutineScope.launch(Dispatchers.IO) {
-                    val dao = DatabaseProvider.get(context).rideDao()
-                    val rides = dao.getRides()
                     withContext(Dispatchers.Main) {
-                        if (rides.isEmpty()) {
-                            Toast.makeText(context, "Belum ada riwayat ride!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            // Memicu dialog penyimpan file Android
-                            createDocumentLauncher.launch("ride_export_${System.currentTimeMillis()}.gpx")
-                        }
+                        mapProvider.drawRecordedTrack(gpxPoints)
                     }
                 }
-            },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
+                delay(1500L) // Refresh setiap 1.5 detik
+            }
+        }
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        // Tampilan Peta Native Compose (Memuat NativeMapView Canvas)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
-            Text("Export Last Ride to GPX")
+            NativeMapView(
+                mapProvider = mapProvider,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // Panel Kontrol (Tombol Start, Stop, Import GPX, Export GPX)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Tombol Start
+                Button(
+                    onClick = {
+                        val intent = Intent(context, RideService::class.java).apply {
+                            action = RideService.ACTION_START
+                            putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(intent)
+                        } else {
+                            context.startService(intent)
+                        }
+                        isRecording = true
+                        Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f).height(50.dp)
+                ) {
+                    Text("Start")
+                }
+
+                // Tombol Stop
+                Button(
+                    onClick = {
+                        val intent = Intent(context, RideService::class.java).apply {
+                            action = RideService.ACTION_STOP
+                        }
+                        context.startService(intent)
+                        isRecording = false
+                        Toast.makeText(context, "Ride Stopped!", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                    modifier = Modifier.weight(1f).height(50.dp)
+                ) {
+                    Text("Stop", color = Color.White)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Tombol Import GPX
+                OutlinedButton(
+                    onClick = {
+                        openDocumentLauncher.launch(arrayOf("*/*"))
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    Text("Import GPX Route")
+                }
+
+                // Tombol Export GPX
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val dao = DatabaseProvider.get(context).rideDao()
+                            val rides = dao.getRides()
+                            withContext(Dispatchers.Main) {
+                                if (rides.isEmpty()) {
+                                    Toast.makeText(context, "Belum ada riwayat ride!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    createDocumentLauncher.launch("ride_export_${System.currentTimeMillis()}.gpx")
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    Text("Export GPX")
+                }
+            }
         }
     }
 }

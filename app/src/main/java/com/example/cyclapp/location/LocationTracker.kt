@@ -3,47 +3,50 @@ package com.example.cyclapp.location
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
-import android.os.Bundle
+import android.os.Looper
+import com.google.android.gms.location.*
 
 class LocationTracker(
-    context: Context,
-    private val onLocation: (Location) -> Unit
+    private val context: Context,
+    private val onLocationReceived: (Location) -> Unit
 ) {
-    private val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val fusedLocationClient: FusedLocationProviderClient =
+        LocationServices.getFusedLocationProviderClient(context)
 
-    private val listener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            onLocation(location)
-        }
-
-        // Override eksplisit ini WAJIB untuk mencegah AbstractMethodError di Android 7+ / API 24
-        @Deprecated("Deprecated in API level 29")
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
-            // Biarkan kosong
-        }
-
-        override fun onProviderEnabled(provider: String) {
-            // Biarkan kosong
-        }
-
-        override fun onProviderDisabled(provider: String) {
-            // Biarkan kosong
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            for (location in result.locations) {
+                onLocationReceived(location)
+            }
         }
     }
 
     @SuppressLint("MissingPermission")
     fun start() {
-        manager.requestLocationUpdates(
-            LocationManager.GPS_PROVIDER,
-            1000L,
-            2f,
-            listener
+        // 1. Ambil lokasi terakhir yang diketahui secara cepat saat aplikasi dinyalakan
+        fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+            if (location != null) {
+                onLocationReceived(location)
+            }
+        }
+
+        // 2. Konfigurasi High Accuracy untuk HP Fisik
+        val locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY, 2000L // Interval update setiap 2 detik
+        ).apply {
+            setMinUpdateIntervalMillis(1000L) // Paling cepat 1 detik
+            setMinUpdateDistanceMeters(1f)   // Berpindah minimal 1 meter
+            setWaitForAccurateLocation(false) // Mencegah status stuck "Mencari GPS"
+        }.build()
+
+        fusedLocationClient.requestLocationUpdates(
+            locationRequest,
+            locationCallback,
+            Looper.getMainLooper()
         )
     }
 
     fun stop() {
-        manager.removeUpdates(listener)
+        fusedLocationClient.removeLocationUpdates(locationCallback)
     }
 }

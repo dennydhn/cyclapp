@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <style>
+        body, html, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #e0e0e0; }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+    var map = L.map('map', { zoomControl: false }).setView([-7.7956, 110.3695], 14);
+
+    // Tile Server OpenStreetMap Standard dengan fallback CartoDB
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var recordedPolyline = L.polyline([], {color: '#D32F2F', weight: 6}).addTo(map);
+    var importedPolyline = L.polyline([], {color: '#1976D2', weight: 4}).addTo(map);
+    var userMarker = null;
+
+    function setUserLocation(lat, lng) {
+        map.panTo([lat, lng]);
+        if (!userMarker) {
+            userMarker = L.circleMarker([lat, lng], {
+                radius: 8, color: '#FFFFFF', fillColor: '#2196F3', fillOpacity: 1, weight: 3
+            }).addTo(map);
+        } else {
+            userMarker.setLatLng([lat, lng]);
+        }
+    }
+
+    function drawRecordedTrack(pointsJson) {
+        var pts = JSON.parse(pointsJson);
+        var latLngs = pts.map(p => [p.latitude, p.longitude]);
+        recordedPolyline.setLatLngs(latLngs);
+    }
+
+    function drawImportedRoute(pointsJson) {
+        var pts = JSON.parse(pointsJson);
+        var latLngs = pts.map(p => [p.latitude, p.longitude]);
+        importedPolyline.setLatLngs(latLngs);
+        if (latLngs.length > 0) {
+            map.fitBounds(importedPolyline.getBounds());
+        }
+    }
+
+    function clearRoute() {
+        recordedPolyline.setLatLngs([]);
+        importedPolyline.setLatLngs([]);
+    }
+</script>
+</body>
+</html>
