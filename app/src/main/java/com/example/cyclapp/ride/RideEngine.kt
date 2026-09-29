@@ -18,7 +18,8 @@ data class RideMetrics(
     val currentSpeedKmh: Double = 0.0,
     val avgSpeedKmh: Double = 0.0,
     val elevationGainMeters: Double = 0.0,
-    val gradientPercent: Double? = null
+    val gradientPercent: Double? = null,
+    val heartRate: Int? = null
 )
 
 class RideEngine(
@@ -41,10 +42,19 @@ class RideEngine(
     private var speedSum = 0.0
     private var speedCount = 0
     private var startTimeMs = 0L
+    private var latestHr: Int? = null
 
     // StateFlow untuk diobservasi oleh Dashboard Overlay UI secara real-time
     private val _metrics = MutableStateFlow(RideMetrics())
     val metrics: StateFlow<RideMetrics> = _metrics.asStateFlow()
+
+    fun setHeartRate(bpm: Int) {
+        latestHr = bpm
+        // Perbarui StateFlow metrik agar Dashboard UI menampilkan nilai BPM
+        _metrics.value = _metrics.value.copy(heartRate = bpm)
+    }
+
+    fun onHeartRate(bpm: Int) = setHeartRate(bpm)
 
     suspend fun start(routeName: String? = null) {
         startTimeMs = System.currentTimeMillis()
@@ -63,6 +73,7 @@ class RideEngine(
         maxSpeed = 0.0
         speedSum = 0.0
         speedCount = 0
+        latestHr = null
         _metrics.value = RideMetrics()
     }
 
@@ -126,7 +137,8 @@ class RideEngine(
             currentSpeedKmh = currentSpeedMps * 3.6, // Konversi m/s ke km/h
             avgSpeedKmh = avgSpeedMps * 3.6,         // Konversi m/s ke km/h
             elevationGainMeters = gain,
-            gradientPercent = gradient
+            gradientPercent = gradient,
+            heartRate = latestHr
         )
 
         scope.launch(Dispatchers.IO) {
@@ -138,7 +150,7 @@ class RideEngine(
                     longitude = location.longitude,
                     altitudeMeters = if (location.hasAltitude()) location.altitude else null,
                     speedMps = speedToSave,
-                    heartRate = null,
+                    heartRate = latestHr, // Pass data BPM ke Room DB
                     gradientPercent = gradient
                 )
             )

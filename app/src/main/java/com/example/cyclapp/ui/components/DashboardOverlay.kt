@@ -74,27 +74,24 @@ fun DashboardOverlay(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Baris Kedua: Jarak, Durasi, Avg Speed
+            // Baris Kedua: Jarak, Durasi, Heart Rate
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Jarak Tempuh
                 MetricItem(
                     label = "DISTANCE",
                     value = String.format(Locale.US, "%.2f km", metrics.distanceMeters / 1000f)
                 )
 
-                // Durasi (HH:MM:SS)
                 MetricItem(
                     label = "TIME",
                     value = formatSeconds(metrics.durationSeconds)
                 )
 
-                // Kecepatan Rata-rata
                 MetricItem(
-                    label = "AVG SPEED",
-                    value = String.format(Locale.US, "%.1f km/h", metrics.avgSpeedKmh)
+                    label = "HEART RATE",
+                    value = metrics.heartRate?.let { "$it bpm" } ?: "-- bpm"
                 )
             }
         }
@@ -102,7 +99,11 @@ fun DashboardOverlay(
 }
 
 @Composable
-private fun MetricItem(label: String, value: String) {
+private fun MetricItem(
+    label: String,
+    value: String,
+    valueColor: Color = Color(0xFF212121)
+) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = label,
@@ -115,7 +116,7 @@ private fun MetricItem(label: String, value: String) {
             text = value,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF212121)
+            color = valueColor
         )
     }
 }

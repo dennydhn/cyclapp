@@ -13,12 +13,20 @@ interface RideDao {
     @Insert
     suspend fun insertTrackPoint(point: TrackPointEntity)
 
+    // Mengambil semua riwayat gowes diurutkan dari yang terbaru
     @Query("SELECT * FROM rides ORDER BY startTime DESC")
     suspend fun getRides(): List<RideEntity>
 
     @Query("SELECT * FROM rides WHERE id = :id LIMIT 1")
     suspend fun getRide(id: Long): RideEntity?
 
-    @Query("SELECT * FROM track_points WHERE rideId = :rideId ORDER BY timestamp")
+    @Query("SELECT * FROM track_points WHERE rideId = :rideId ORDER BY timestamp ASC")
     suspend fun getTrackPoints(rideId: Long): List<TrackPointEntity>
+
+    // Menghapus riwayat gowes beserta titik koordinatnya
+    @Query("DELETE FROM rides WHERE id = :rideId")
+    suspend fun deleteRide(rideId: Long)
+
+    @Query("DELETE FROM track_points WHERE rideId = :rideId")
+    suspend fun deleteTrackPoints(rideId: Long)
 }

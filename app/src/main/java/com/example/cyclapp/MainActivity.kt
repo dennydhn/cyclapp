@@ -1,16 +1,12 @@
 package com.example.cyclapp
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.location.Location
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -20,66 +16,92 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.example.cyclapp.data.db.DatabaseProvider
 import com.example.cyclapp.gpx.GpxExporter
 import com.example.cyclapp.gpx.GpxImporter
 import com.example.cyclapp.gpx.GpxPoint
 import com.example.cyclapp.map.ComposeMapProvider
+import com.example.cyclapp.ride.RideMetrics
 import com.example.cyclapp.ride.RideService
+import com.example.cyclapp.ui.RideHistoryScreen
+import com.example.cyclapp.ui.components.DashboardOverlay
 import com.example.cyclapp.ui.components.NativeMapView
 import com.example.cyclapp.ui.theme.CyclappTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.example.cyclapp.ride.RideMetrics
-import com.example.cyclapp.ui.components.DashboardOverlay
+
+enum class AppScreen {
+    RIDE_CONTROL,
+    RIDE_HISTORY
+}
 
 class MainActivity : ComponentActivity() {
-
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
-        if (!locationGranted) {
-            Toast.makeText(this, "Izin lokasi diperlukan!", Toast.LENGTH_LONG).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        checkAndRequestPermissions()
-        enableEdgeToEdge()
-
         setContent {
             CyclappTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    RideControlScreen(modifier = Modifier.padding(innerPadding))
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    MainAppNavigation()
                 }
             }
-        }
-    }
-
-    private fun checkAndRequestPermissions() {
-        val permissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        val missing = permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isNotEmpty()) {
-            requestPermissionLauncher.launch(missing.toTypedArray())
         }
     }
 }
 
 @Composable
-fun RideControlScreen(modifier: Modifier = Modifier) {
+fun MainAppNavigation() {
+    var currentScreen by remember { mutableStateOf(AppScreen.RIDE_CONTROL) }
+    val mapProvider = remember { ComposeMapProvider() }
+
+    when (currentScreen) {
+        AppScreen.RIDE_CONTROL -> {
+            RideControlScreen(
+                mapProvider = mapProvider,
+                onOpenHistoryClicked = { currentScreen = AppScreen.RIDE_HISTORY }
+            )
+        }
+        AppScreen.RIDE_HISTORY -> {
+            val context = LocalContext.current
+            val coroutineScope = rememberCoroutineScope()
+
+            RideHistoryScreen(
+                onBackClicked = { currentScreen = AppScreen.RIDE_CONTROL },
+                onRideSelected = { rideId ->
+                    // Muat rute riwayat gowes yang dipilih kembali ke Peta
+                    coroutineScope.launch(Dispatchers.IO) {
+                        val dao = DatabaseProvider.get(context).rideDao()
+                        val points = dao.getTrackPoints(rideId)
+                        val gpxPoints = points.map {
+                            GpxPoint(it.latitude, it.longitude, it.altitudeMeters, it.timestamp)
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (gpxPoints.isNotEmpty()) {
+                                mapProvider.drawRecordedTrack(gpxPoints)
+                                mapProvider.recenter()
+                                Toast.makeText(context, "Memuat rute riwayat ke peta!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Riwayat ini tidak memiliki data lokasi.", Toast.LENGTH_SHORT).show()
+                            }
+                            currentScreen = AppScreen.RIDE_CONTROL
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun RideControlScreen(
+    mapProvider: ComposeMapProvider,
+    onOpenHistoryClicked: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isRecording by remember { mutableStateOf(false) }
@@ -87,22 +109,18 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
     // State Metrik Gowes Real-Time
     var currentMetrics by remember { mutableStateOf(RideMetrics()) }
 
-    // MapProvider Native Compose Canvas
-    val mapProvider = remember { ComposeMapProvider() }
-
-    // Launcher SAF untuk Membuka / Import File GPX (Rute Biru)
+    // Launcher untuk Import File GPX
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let { selectedUri ->
             coroutineScope.launch(Dispatchers.IO) {
-                val importedPoints = GpxImporter.parse(context, selectedUri)
+                val inputStream = context.contentResolver.openInputStream(selectedUri)
+                val importedTrack = inputStream?.use { GpxImporter.parse(context, selectedUri) } ?: emptyList()
                 withContext(Dispatchers.Main) {
-                    if (importedPoints.isNotEmpty()) {
-                        // Cukup gambar rute GPX tanpa memindahkan lokasi pengguna
-                        mapProvider.drawImportedRoute(importedPoints)
-
-                        Toast.makeText(context, "Berhasil memuat rute GPX (${importedPoints.size} titik)!", Toast.LENGTH_SHORT).show()
+                    if (importedTrack.isNotEmpty()) {
+                        mapProvider.drawImportedRoute(importedTrack)
+                        Toast.makeText(context, "Berhasil memuat GPX (${importedTrack.size} titik)", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Gagal memuat file GPX!", Toast.LENGTH_SHORT).show()
                     }
@@ -111,7 +129,7 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
         }
     }
 
-    // Launcher SAF untuk Menyimpan / Export GPX
+    // Launcher untuk Export File GPX
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
     ) { uri ->
@@ -120,28 +138,24 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 val dao = DatabaseProvider.get(context).rideDao()
                 val rides = dao.getRides()
                 if (rides.isNotEmpty()) {
-                    val lastRide = rides.first()
-                    val points = dao.getTrackPoints(lastRide.id)
-                    val gpxData = GpxExporter.export("Ride_${lastRide.id}", points)
-
-                    context.contentResolver.openOutputStream(destinationUri)?.use { output ->
-                        output.write(gpxData.toByteArray())
+                    val latestRide = rides.first()
+                    val points = dao.getTrackPoints(latestRide.id)
+                    val gpxContent = GpxExporter.export(latestRide.routeName ?: "Ride", points)
+                    context.contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
+                        outputStream.write(gpxContent.toByteArray())
                     }
-
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "File GPX berhasil disimpan!", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "File GPX berhasil diekspor!", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
         }
     }
 
-    // Coroutine Loop untuk update Garis Merah di Peta DAN Metrik Gowes secara Real-Time
+    // Coroutine Loop untuk update Garis Merah di Peta & Dashboard secara Live
     LaunchedEffect(isRecording) {
         if (isRecording) {
             val startTime = System.currentTimeMillis()
-            var totalDist = 0f
-
             while (isRecording) {
                 val dao = DatabaseProvider.get(context).rideDao()
                 val rides = dao.getRides()
@@ -153,18 +167,15 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                     withContext(Dispatchers.Main) {
                         mapProvider.drawRecordedTrack(gpxPoints)
 
-                        // Kalkulasi Metrik Sederhana untuk Tampilan Real-time Dashboard
                         if (gpxPoints.isNotEmpty()) {
                             val durationSec = (System.currentTimeMillis() - startTime) / 1000L
-
-                            // Hitung jarak akumulatif
+                            var totalDist = 0f
                             if (gpxPoints.size >= 2) {
-                                totalDist = 0f
                                 for (i in 0 until gpxPoints.size - 1) {
                                     val p1 = gpxPoints[i]
                                     val p2 = gpxPoints[i + 1]
                                     val results = FloatArray(1)
-                                    Location.distanceBetween(
+                                    android.location.Location.distanceBetween(
                                         p1.latitude, p1.longitude,
                                         p2.latitude, p2.longitude,
                                         results
@@ -172,22 +183,21 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                                     totalDist += results[0]
                                 }
                             }
-
                             val avgSpeed = if (durationSec > 0) (totalDist / 1000f) / (durationSec / 3600f) else 0f
 
                             currentMetrics = RideMetrics(
                                 durationSeconds = durationSec,
                                 distanceMeters = totalDist.toDouble(),
-                                currentSpeedKmh = avgSpeed.toDouble(), // Kecepatan estimasi saat ini
+                                currentSpeedKmh = (avgSpeed * 1.1).toDouble(),
                                 avgSpeedKmh = avgSpeed.toDouble()
                             )
                         }
                     }
                 }
-                delay(1000L) // Refresh Dashboard & Peta setiap 1 detik
+                delay(1000L)
             }
         } else {
-            currentMetrics = RideMetrics() // Reset saat stop
+            currentMetrics = RideMetrics()
         }
     }
 
@@ -197,13 +207,13 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            // 1. Tampilan Peta Canvas
+            // 1. Tampilan Peta Canvas Native
             NativeMapView(
                 mapProvider = mapProvider,
                 modifier = Modifier.fillMaxSize()
             )
 
-            // 2. Dashboard Metrik Melayang (Hanya muncul saat recording/gowes aktif)
+            // 2. Dashboard Metrik Melayang (Aktif saat recording)
             if (isRecording) {
                 DashboardOverlay(
                     metrics = currentMetrics,
@@ -211,7 +221,7 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                 )
             }
 
-            // 3. Tombol Recenter (Top Right)
+            // 3. Floating Action Button (Recenter)
             if (!mapProvider.isAutoCenterEnabled) {
                 SmallFloatingActionButton(
                     onClick = { mapProvider.recenter() },
@@ -225,13 +235,14 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // Panel Kontrol
+        // Panel Kontrol Aplikasi
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Baris 1: Tombol Start & Stop
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -274,21 +285,18 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Baris 2: Import GPX / Delete GPX & Export GPX
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Tombol Import / Auto-replace GPX
                 OutlinedButton(
-                    onClick = {
-                        openDocumentLauncher.launch(arrayOf("*/*"))
-                    },
+                    onClick = { openDocumentLauncher.launch(arrayOf("*/*")) },
                     modifier = Modifier.weight(1f).height(48.dp)
                 ) {
                     Text(if (mapProvider.importedRoutePoints.isNotEmpty()) "Replace GPX" else "Import GPX")
                 }
 
-                // Tombol Delete GPX (Hanya muncul jika ada GPX yang diload)
                 if (mapProvider.importedRoutePoints.isNotEmpty()) {
                     OutlinedButton(
                         onClick = {
@@ -320,6 +328,16 @@ fun RideControlScreen(modifier: Modifier = Modifier) {
                         Text("Export GPX")
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Baris 3: Tombol Buka Riwayat Gowes
+            OutlinedButton(
+                onClick = onOpenHistoryClicked,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Text("📋 Riwayat Gowes")
             }
         }
     }
