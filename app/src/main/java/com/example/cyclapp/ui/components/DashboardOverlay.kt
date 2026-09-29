@@ -6,7 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -14,20 +14,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclapp.ride.RideMetrics
-import java.util.Locale
+import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun DashboardOverlay(
     metrics: RideMetrics,
     modifier: Modifier = Modifier
 ) {
+    // State Jam Real-time (Time Now)
+    var currentTimeString by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        while (true) {
+            currentTimeString = timeFormat.format(Date())
+            delay(1000L) // Update setiap detik
+        }
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.92f)
+            containerColor = Color.White.copy(alpha = 0.94f)
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
     ) {
@@ -36,18 +49,35 @@ fun DashboardOverlay(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Tampilkan Banner AUTO PAUSED jika aktif
-            if (metrics.isAutoPaused) {
+            // Indikator Status Auto Paused & Jam Real-Time
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (metrics.isAutoPaused) {
+                    Text(
+                        text = "⏸ AUTO PAUSED",
+                        color = Color(0xFFE65100),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+
+                // TIME NOW (Jam Saat Ini)
                 Text(
-                    text = "⏸ AUTO PAUSED",
-                    color = Color(0xFFE65100),
-                    fontWeight = FontWeight.Bold,
+                    text = "🕒 $currentTimeString",
                     fontSize = 12.sp,
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF424242)
                 )
             }
 
-            // Baris Utama: Kecepatan Saat Ini (Utama & Besar)
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Baris Utama: Kecepatan Saat Ini (SPEED)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -56,48 +86,72 @@ fun DashboardOverlay(
                 Column {
                     Text(
                         text = "SPEED",
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.Gray
                     )
                     Text(
                         text = String.format(Locale.US, "%.1f", metrics.currentSpeedKmh),
-                        fontSize = 42.sp,
+                        fontSize = 40.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color(0xFF1976D2)
                     )
                 }
                 Text(
                     text = "km/h",
-                    fontSize = 16.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Gray,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
                     .background(Color(0xFFE0E0E0))
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Baris Kedua: Jarak, Durasi, Heart Rate
+            // Grid Metrik Tambahan
+            // Baris 1: Distance, Duration, Avg Speed
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 MetricItem(
                     label = "DISTANCE",
-                    value = String.format(Locale.US, "%.2f km", metrics.distanceMeters / 1000f)
+                    value = String.format(Locale.US, "%.2f km", metrics.distanceMeters / 1000.0)
                 )
 
                 MetricItem(
-                    label = "TIME",
+                    label = "DURATION",
                     value = formatSeconds(metrics.durationSeconds)
+                )
+
+                MetricItem(
+                    label = "AVG SPEED",
+                    value = String.format(Locale.US, "%.1f km/h", metrics.avgSpeedKmh)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Baris 2: Altitude, Gradient, Heart Rate
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                MetricItem(
+                    label = "ALTITUDE",
+                    value = metrics.altitudeMeters?.let { String.format(Locale.US, "%.0f m", it) } ?: "-- m"
+                )
+
+                MetricItem(
+                    label = "GRADIENT",
+                    value = metrics.gradientPercent?.let { String.format(Locale.US, "%.1f%%", it) } ?: "--%"
                 )
 
                 MetricItem(
@@ -110,24 +164,20 @@ fun DashboardOverlay(
 }
 
 @Composable
-private fun MetricItem(
-    label: String,
-    value: String,
-    valueColor: Color = Color(0xFF212121)
-) {
+private fun MetricItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = label,
-            fontSize = 10.sp,
+            fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
             color = Color.Gray
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = value,
-            fontSize = 16.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            color = valueColor
+            color = Color(0xFF212121)
         )
     }
 }

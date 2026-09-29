@@ -20,7 +20,7 @@ data class RideMetrics(
     val distanceMeters: Double = 0.0,
     val currentSpeedKmh: Double = 0.0,
     val avgSpeedKmh: Double = 0.0,
-    val elevationGainMeters: Double = 0.0,
+    val altitudeMeters: Double? = null,
     val gradientPercent: Double? = null,
     val heartRate: Int? = null,
     val isAutoPaused: Boolean = false
@@ -167,9 +167,9 @@ class RideEngine(
         _metrics.value = RideMetrics(
             durationSeconds = durationSec,
             distanceMeters = distance,
-            currentSpeedKmh = currentSpeedMps * 3.6, // Konversi m/s ke km/h
-            avgSpeedKmh = avgSpeedMps * 3.6,         // Konversi m/s ke km/h
-            elevationGainMeters = gain,
+            currentSpeedKmh = currentSpeedMps * 3.6,
+            avgSpeedKmh = avgSpeedMps * 3.6,
+            altitudeMeters = if (location.hasAltitude()) location.altitude else null,
             gradientPercent = gradient,
             heartRate = latestHr,
             isAutoPaused = isAutoPaused
