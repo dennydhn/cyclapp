@@ -9,7 +9,10 @@ class AutoPauseController(
 
     private var stoppedSince: Long? = null
 
-    fun update(speedMps: Double, now: Long, isRecording: Boolean, isPaused: Boolean): Action {
+    fun update(speedMps: Double, now: Long, isRecording: Boolean, isPaused: Boolean, isManualPaused: Boolean): Action {
+        if (isManualPaused) {
+            return Action.NONE // Jika di-pause secara manual, abaikan auto-resume
+        }
         if (isRecording && !isPaused) {
             // Cek kondisi Auto-Pause
             if (speedMps < pauseSpeedMps) {

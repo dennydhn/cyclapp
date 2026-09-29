@@ -21,7 +21,7 @@ import com.example.cyclapp.gpx.GpxExporter
 import com.example.cyclapp.gpx.GpxImporter
 import com.example.cyclapp.gpx.GpxPoint
 import com.example.cyclapp.map.ComposeMapProvider
-import com.example.cyclapp.ride.RideMetrics
+import com.example.cyclapp.ride.ActiveRideRepository
 import com.example.cyclapp.ride.RideService
 import com.example.cyclapp.ui.RideDetailScreen
 import com.example.cyclapp.ui.RideHistoryScreen
@@ -97,9 +97,9 @@ fun RideControlScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isRecording by remember { mutableStateOf(false) }
+    var isPaused by remember { mutableStateOf(false) }
 
-    // State Metrik Gowes Real-Time
-    var currentMetrics by remember { mutableStateOf(RideMetrics()) }
+    val currentMetrics by ActiveRideRepository.metrics.collectAsState()
 
     // Launcher untuk Import File GPX
     val openDocumentLauncher = rememberLauncherForActivityResult(
@@ -144,10 +144,9 @@ fun RideControlScreen(
         }
     }
 
-    // Coroutine Loop untuk update Garis Merah di Peta & Dashboard secara Live
+    // Coroutine Loop untuk update Garis Merah di Peta secara Live
     LaunchedEffect(isRecording) {
         if (isRecording) {
-            val startTime = System.currentTimeMillis()
             while (isRecording) {
                 val dao = DatabaseProvider.get(context).rideDao()
                 val rides = dao.getRides()
@@ -158,38 +157,10 @@ fun RideControlScreen(
 
                     withContext(Dispatchers.Main) {
                         mapProvider.drawRecordedTrack(gpxPoints)
-
-                        if (gpxPoints.isNotEmpty()) {
-                            val durationSec = (System.currentTimeMillis() - startTime) / 1000L
-                            var totalDist = 0f
-                            if (gpxPoints.size >= 2) {
-                                for (i in 0 until gpxPoints.size - 1) {
-                                    val p1 = gpxPoints[i]
-                                    val p2 = gpxPoints[i + 1]
-                                    val results = FloatArray(1)
-                                    android.location.Location.distanceBetween(
-                                        p1.latitude, p1.longitude,
-                                        p2.latitude, p2.longitude,
-                                        results
-                                    )
-                                    totalDist += results[0]
-                                }
-                            }
-                            val avgSpeed = if (durationSec > 0) (totalDist / 1000f) / (durationSec / 3600f) else 0f
-
-                            currentMetrics = RideMetrics(
-                                durationSeconds = durationSec,
-                                distanceMeters = totalDist.toDouble(),
-                                currentSpeedKmh = (avgSpeed * 1.1).toDouble(),
-                                avgSpeedKmh = avgSpeed.toDouble()
-                            )
-                        }
                     }
                 }
                 delay(1000L)
             }
-        } else {
-            currentMetrics = RideMetrics()
         }
     }
 
@@ -234,29 +205,48 @@ fun RideControlScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Baris 1: Tombol Start & Stop
+            // Baris 1: Tombol Start / Pause / Resume & Stop
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    onClick = {
-                        val intent = Intent(context, RideService::class.java).apply {
-                            action = RideService.ACTION_START
-                            putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            context.startForegroundService(intent)
-                        } else {
+                if (!isRecording) {
+                    Button(
+                        onClick = {
+                            val intent = Intent(context, RideService::class.java).apply {
+                                action = RideService.ACTION_START
+                                putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                context.startForegroundService(intent)
+                            } else {
+                                context.startService(intent)
+                            }
+                            isRecording = true
+                            isPaused = false
+                            mapProvider.recenter()
+                            Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.weight(1f).height(50.dp)
+                    ) {
+                        Text("Start")
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            val action = if (isPaused) RideService.ACTION_RESUME else RideService.ACTION_PAUSE
+                            val intent = Intent(context, RideService::class.java).apply {
+                                this.action = action
+                            }
                             context.startService(intent)
-                        }
-                        isRecording = true
-                        mapProvider.recenter()
-                        Toast.makeText(context, "Ride Started!", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.weight(1f).height(50.dp)
-                ) {
-                    Text("Start")
+                            isPaused = !isPaused
+                            Toast.makeText(context, if (isPaused) "Ride Paused" else "Ride Resumed", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isPaused) Color(0xFF388E3C) else Color(0xFFF57C00)),
+                        modifier = Modifier.weight(1f).height(50.dp)
+                    ) {
+                        Text(if (isPaused) "Resume" else "Pause", color = Color.White)
+                    }
                 }
 
                 Button(
@@ -266,6 +256,7 @@ fun RideControlScreen(
                         }
                         context.startService(intent)
                         isRecording = false
+                        isPaused = false
                         Toast.makeText(context, "Ride Stopped!", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),

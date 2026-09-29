@@ -2,6 +2,7 @@ package com.example.cyclapp.ride
 
 import android.app.*
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.example.cyclapp.R
@@ -50,7 +51,7 @@ class RideService : Service(){
             .setOngoing(true)
             .build()
     private fun createChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL,
                 "Cycling recording",
@@ -70,7 +71,7 @@ class RideService : Service(){
         const val CHANNEL = "cycling_recording"
         const val NOTIFICATION_ID = 1001
         const val ACTION_START = "cycle.START"
-        const val ACTION_PAUSE = "cucle.PAUSE"
+        const val ACTION_PAUSE = "cycle.PAUSE"
         const val ACTION_RESUME = "cycle.RESUME"
         const val ACTION_STOP = "cycle.STOP"
         const val EXTRA_ROUTE = "route_name"

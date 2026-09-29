@@ -40,6 +40,8 @@ class RideEngine(
     private val autoPauseController = AutoPauseController()
     var isAutoPaused by mutableStateOf(false)
         private set
+    var isManualPaused = false
+        private set
 
     private var previous: Location? = null
     private var distance = 0.0
@@ -50,6 +52,8 @@ class RideEngine(
     private var speedSum = 0.0
     private var speedCount = 0
     private var startTimeMs = 0L
+    private var pausedDurationMs = 0L
+    private var pauseStartMs = 0L
     private var latestHr: Int? = null
 
     // StateFlow untuk diobservasi oleh Dashboard Overlay UI secara real-time
@@ -58,14 +62,18 @@ class RideEngine(
 
     fun setHeartRate(bpm: Int) {
         latestHr = bpm
-        // Perbarui StateFlow metrik agar Dashboard UI menampilkan nilai BPM
         _metrics.value = _metrics.value.copy(heartRate = bpm)
+        ActiveRideRepository.updateMetrics(_metrics.value)
     }
 
     fun onHeartRate(bpm: Int) = setHeartRate(bpm)
 
     suspend fun start(routeName: String? = null) {
         startTimeMs = System.currentTimeMillis()
+        pausedDurationMs = 0L
+        pauseStartMs = 0L
+        isManualPaused = false
+        isAutoPaused = false
         rideId = dao.insertRide(
             RideEntity(
                 startTime = startTimeMs,
@@ -74,7 +82,6 @@ class RideEngine(
         )
         state = State.RECORDING
         autoPauseController.reset()
-        isAutoPaused = false
         previous = null
         distance = 0.0
         gain = 0.0
@@ -85,14 +92,57 @@ class RideEngine(
         speedCount = 0
         latestHr = null
         _metrics.value = RideMetrics()
+        ActiveRideRepository.updateMetrics(_metrics.value)
     }
 
     fun pause() {
-        if (state == State.RECORDING) state = State.PAUSED
+        if (state == State.RECORDING) {
+            state = State.PAUSED
+            isManualPaused = true
+            isAutoPaused = false
+            pauseStartMs = System.currentTimeMillis()
+            updateMetrics(0.0, null, null)
+        }
     }
 
     fun resume() {
-        if (state == State.PAUSED) state = State.RECORDING
+        if (state == State.PAUSED) {
+            state = State.RECORDING
+            isManualPaused = false
+            isAutoPaused = false
+            if (pauseStartMs > 0L) {
+                pausedDurationMs += System.currentTimeMillis() - pauseStartMs
+                pauseStartMs = 0L
+            }
+            autoPauseController.reset()
+            updateMetrics(0.0, null, null)
+        }
+    }
+
+    private fun updateMetrics(currentSpeedMps: Double, altitude: Double?, gradient: Double?) {
+        val now = System.currentTimeMillis()
+        val activeTimeMs = if (state == State.RECORDING) {
+            now - startTimeMs - pausedDurationMs
+        } else {
+            val currentPauseDuration = if (pauseStartMs > 0L) now - pauseStartMs else 0L
+            now - startTimeMs - pausedDurationMs - currentPauseDuration
+        }.coerceAtLeast(0L)
+
+        val durationSec = TimeUnit.MILLISECONDS.toSeconds(activeTimeMs)
+        val avgSpeedMps = if (speedCount > 0) speedSum / speedCount else 0.0
+
+        val metrics = RideMetrics(
+            durationSeconds = durationSec,
+            distanceMeters = distance,
+            currentSpeedKmh = currentSpeedMps * 3.6,
+            avgSpeedKmh = avgSpeedMps * 3.6,
+            altitudeMeters = altitude,
+            gradientPercent = gradient,
+            heartRate = latestHr,
+            isAutoPaused = isAutoPaused
+        )
+        _metrics.value = metrics
+        ActiveRideRepository.updateMetrics(metrics)
     }
 
     fun onLocation(location: Location) {
@@ -104,21 +154,39 @@ class RideEngine(
             speedMps = speedMps,
             now = now,
             isRecording = (state == State.RECORDING),
-            isPaused = (state == State.PAUSED)
+            isPaused = (state == State.PAUSED),
+            isManualPaused = isManualPaused
         )
 
         when (action) {
             AutoPauseController.Action.PAUSE -> {
-                pause()
-                isAutoPaused = true
+                if (state == State.RECORDING) {
+                    state = State.PAUSED
+                    isAutoPaused = true
+                    isManualPaused = false
+                    pauseStartMs = now
+                    updateMetrics(0.0, if (location.hasAltitude()) location.altitude else null, null)
+                }
                 return
             }
             AutoPauseController.Action.RESUME -> {
-                resume()
-                isAutoPaused = false
+                if (state == State.PAUSED && isAutoPaused) {
+                    state = State.RECORDING
+                    isAutoPaused = false
+                    isManualPaused = false
+                    if (pauseStartMs > 0L) {
+                        pausedDurationMs += now - pauseStartMs
+                        pauseStartMs = 0L
+                    }
+                    autoPauseController.reset()
+                    updateMetrics(speedMps, if (location.hasAltitude()) location.altitude else null, null)
+                }
             }
             AutoPauseController.Action.NONE -> {
-                if (state != State.RECORDING) return
+                if (state != State.RECORDING) {
+                    updateMetrics(0.0, if (location.hasAltitude()) location.altitude else null, null)
+                    return
+                }
             }
         }
 
@@ -159,21 +227,9 @@ class RideEngine(
         }
 
         val speedToSave = if (location.hasSpeed()) location.speed.toDouble() else null
+        val altitudeToSave = if (location.hasAltitude()) location.altitude else null
 
-        // Perbarui StateFlow Metrik Real-Time untuk UI Dashboard
-        val durationSec = TimeUnit.MILLISECONDS.toSeconds(now - startTimeMs)
-        val avgSpeedMps = if (speedCount > 0) speedSum / speedCount else 0.0
-
-        _metrics.value = RideMetrics(
-            durationSeconds = durationSec,
-            distanceMeters = distance,
-            currentSpeedKmh = currentSpeedMps * 3.6,
-            avgSpeedKmh = avgSpeedMps * 3.6,
-            altitudeMeters = if (location.hasAltitude()) location.altitude else null,
-            gradientPercent = gradient,
-            heartRate = latestHr,
-            isAutoPaused = isAutoPaused
-        )
+        updateMetrics(currentSpeedMps, altitudeToSave, gradient)
 
         scope.launch(Dispatchers.IO) {
             dao.insertTrackPoint(
@@ -182,9 +238,9 @@ class RideEngine(
                     timestamp = location.time,
                     latitude = location.latitude,
                     longitude = location.longitude,
-                    altitudeMeters = if (location.hasAltitude()) location.altitude else null,
+                    altitudeMeters = altitudeToSave,
                     speedMps = speedToSave,
-                    heartRate = latestHr, // Pass data BPM ke Room DB
+                    heartRate = latestHr,
                     gradientPercent = gradient
                 )
             )
@@ -197,10 +253,11 @@ class RideEngine(
         val end = System.currentTimeMillis()
         val old = dao.getRide(rideId) ?: return
 
+        val activeTimeMs = end - startTimeMs - pausedDurationMs
         dao.updateRide(
             old.copy(
                 endTime = end,
-                elapsedTimeMs = end - old.startTime,
+                elapsedTimeMs = activeTimeMs.coerceAtLeast(0L),
                 distanceMeters = distance,
                 elevationGainMeters = gain,
                 elevationLossMeters = loss,
@@ -210,5 +267,6 @@ class RideEngine(
             )
         )
         state = State.FINISHED
+        ActiveRideRepository.updateMetrics(RideMetrics())
     }
 }
