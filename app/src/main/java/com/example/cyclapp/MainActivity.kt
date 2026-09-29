@@ -23,6 +23,7 @@ import com.example.cyclapp.gpx.GpxPoint
 import com.example.cyclapp.map.ComposeMapProvider
 import com.example.cyclapp.ride.RideMetrics
 import com.example.cyclapp.ride.RideService
+import com.example.cyclapp.ui.RideDetailScreen
 import com.example.cyclapp.ui.RideHistoryScreen
 import com.example.cyclapp.ui.components.DashboardOverlay
 import com.example.cyclapp.ui.components.NativeMapView
@@ -34,7 +35,8 @@ import kotlinx.coroutines.withContext
 
 enum class AppScreen {
     RIDE_CONTROL,
-    RIDE_HISTORY
+    RIDE_HISTORY,
+    RIDE_DETAIL
 }
 
 class MainActivity : ComponentActivity() {
@@ -56,6 +58,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppNavigation() {
     var currentScreen by remember { mutableStateOf(AppScreen.RIDE_CONTROL) }
+    var selectedRideId by remember { mutableStateOf<Long?>(null) }
     val mapProvider = remember { ComposeMapProvider() }
 
     when (currentScreen) {
@@ -66,32 +69,21 @@ fun MainAppNavigation() {
             )
         }
         AppScreen.RIDE_HISTORY -> {
-            val context = LocalContext.current
-            val coroutineScope = rememberCoroutineScope()
-
             RideHistoryScreen(
                 onBackClicked = { currentScreen = AppScreen.RIDE_CONTROL },
                 onRideSelected = { rideId ->
-                    // Muat rute riwayat gowes yang dipilih kembali ke Peta
-                    coroutineScope.launch(Dispatchers.IO) {
-                        val dao = DatabaseProvider.get(context).rideDao()
-                        val points = dao.getTrackPoints(rideId)
-                        val gpxPoints = points.map {
-                            GpxPoint(it.latitude, it.longitude, it.altitudeMeters, it.timestamp)
-                        }
-                        withContext(Dispatchers.Main) {
-                            if (gpxPoints.isNotEmpty()) {
-                                mapProvider.drawRecordedTrack(gpxPoints)
-                                mapProvider.recenter()
-                                Toast.makeText(context, "Memuat rute riwayat ke peta!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Riwayat ini tidak memiliki data lokasi.", Toast.LENGTH_SHORT).show()
-                            }
-                            currentScreen = AppScreen.RIDE_CONTROL
-                        }
-                    }
+                    selectedRideId = rideId
+                    currentScreen = AppScreen.RIDE_DETAIL // Pindah ke Detail Analytics
                 }
             )
+        }
+        AppScreen.RIDE_DETAIL -> {
+            selectedRideId?.let { rideId ->
+                RideDetailScreen(
+                    rideId = rideId,
+                    onBackClicked = { currentScreen = AppScreen.RIDE_HISTORY }
+                )
+            }
         }
     }
 }
