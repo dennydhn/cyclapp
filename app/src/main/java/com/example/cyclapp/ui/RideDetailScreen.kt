@@ -1,10 +1,14 @@
 package com.example.cyclapp.ui
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +21,9 @@ import androidx.compose.ui.unit.sp
 import com.example.cyclapp.data.db.DatabaseProvider
 import com.example.cyclapp.data.db.RideEntity
 import com.example.cyclapp.data.db.TrackPointEntity
+import com.example.cyclapp.gpx.GpxExporter
 import com.example.cyclapp.ui.components.ElevationAnalyticsChart
+import com.example.cyclapp.ui.components.HeartRateAnalyticsChart
 import com.example.cyclapp.ui.components.SpeedAnalyticsChart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,6 +43,28 @@ fun RideDetailScreen(
     var ride by remember { mutableStateOf<RideEntity?>(null) }
     var trackPoints by remember { mutableStateOf<List<TrackPointEntity>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+
+    // Launcher untuk Export GPX
+    val exportGpxLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
+    ) { uri ->
+        uri?.let { destinationUri ->
+            coroutineScope.launch(Dispatchers.IO) {
+                val dao = DatabaseProvider.get(context).rideDao()
+                val currentRide = dao.getRide(rideId)
+                val points = dao.getTrackPoints(rideId)
+                if (currentRide != null) {
+                    val gpxContent = GpxExporter.export(currentRide.routeName ?: "Ride_$rideId", points)
+                    context.contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
+                        outputStream.write(gpxContent.toByteArray())
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "File GPX berhasil diekspor!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(rideId) {
         coroutineScope.launch(Dispatchers.IO) {
@@ -58,6 +86,21 @@ fun RideDetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Kembali")
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            val safeName = (ride?.routeName ?: "ride_$rideId")
+                                .replace("\\s+".toRegex(), "_")
+                            exportGpxLauncher.launch("$safeName.gpx")
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Ekspor GPX",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             )
@@ -144,10 +187,11 @@ fun RideDetailScreen(
                     }
                 }
 
-                // Grafik Kecepatan
+                // Grafik Analitik (Kecepatan, Elevasi/Altitude, Denyut Jantung)
                 if (trackPoints.isNotEmpty()) {
                     SpeedAnalyticsChart(points = trackPoints)
                     ElevationAnalyticsChart(points = trackPoints)
+                    HeartRateAnalyticsChart(points = trackPoints)
                 } else {
                     Text(
                         text = "Tidak ada titik sampel koordinat untuk grafik.",
