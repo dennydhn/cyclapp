@@ -296,32 +296,6 @@ fun RideControlScreen(
                             onCheckedChange = { onDarkModeChanged(it) }
                         )
                     }
-                    // Auto Pause Toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Auto Pause",
-                            color = if (isDarkMode) Color.White else Color.Black
-                        )
-                        Switch(
-                            checked = currentMetrics.isAutoPauseEnabled,
-                            onCheckedChange = { isEnabled ->
-                                val intent = Intent(context, RideService::class.java).apply {
-                                    action = RideService.ACTION_SET_AUTO_PAUSE
-                                    putExtra(RideService.EXTRA_AUTO_PAUSE_ENABLED, isEnabled)
-                                }
-                                context.startService(intent)
-                                Toast.makeText(
-                                    context,
-                                    if (isEnabled) "Auto Pause Diaktifkan" else "Auto Pause Dinonaktifkan",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        )
-                    }
                 }
             },
             confirmButton = {
@@ -523,6 +497,7 @@ fun RideControlScreen(
                     Button(
                         onClick = {
                             if (!isRecording) {
+                                mapProvider.clearRoute()
                                 val intent = Intent(context, RideService::class.java).apply {
                                     action = RideService.ACTION_START
                                     putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())

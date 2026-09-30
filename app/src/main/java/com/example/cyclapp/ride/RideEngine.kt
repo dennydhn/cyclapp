@@ -22,9 +22,7 @@ data class RideMetrics(
     val avgSpeedKmh: Double = 0.0,
     val altitudeMeters: Double? = null,
     val gradientPercent: Double? = null,
-    val heartRate: Int? = null,
-    val isAutoPaused: Boolean = false,
-    val isAutoPauseEnabled: Boolean = true
+    val heartRate: Int? = null
 )
 
 class RideEngine(
@@ -36,12 +34,6 @@ class RideEngine(
     var state = State.IDLE
         private set
     var rideId = 0L
-        private set
-
-    private val autoPauseController = AutoPauseController()
-    var isAutoPaused by mutableStateOf(false)
-        private set
-    var isManualPaused = false
         private set
 
     private var previous: Location? = null
@@ -56,10 +48,30 @@ class RideEngine(
     private var pausedDurationMs = 0L
     private var pauseStartMs = 0L
     private var latestHr: Int? = null
+    private var latestAltitude: Double? = null
+    private var previousAltitude: Double? = null
+    private var currentSpeedMps: Double = 0.0
+    private var latestGradient: Double? = null
+    private var timerJob: Job? = null
 
     // StateFlow untuk diobservasi oleh Dashboard Overlay UI secara real-time
     private val _metrics = MutableStateFlow(RideMetrics())
     val metrics: StateFlow<RideMetrics> = _metrics.asStateFlow()
+
+    private fun startTimer() {
+        timerJob?.cancel()
+        timerJob = scope.launch {
+            while (isActive && state == State.RECORDING) {
+                delay(1000L)
+                updateMetrics(currentSpeedMps, latestAltitude, latestGradient)
+            }
+        }
+    }
+
+    private fun stopTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
 
     fun setHeartRate(bpm: Int) {
         latestHr = bpm
@@ -69,23 +81,10 @@ class RideEngine(
 
     fun onHeartRate(bpm: Int) = setHeartRate(bpm)
 
-    fun setAutoPauseEnabled(enabled: Boolean) {
-        autoPauseController.isEnabled = enabled
-        _metrics.value = _metrics.value.copy(isAutoPauseEnabled = enabled)
-        ActiveRideRepository.updateMetrics(_metrics.value)
-
-        // Jika Auto Pause dinonaktifkan saat sedang Auto Paused, langsung Resume
-        if (!enabled && isAutoPaused && state == State.PAUSED) {
-            resume()
-        }
-    }
-
     suspend fun start(routeName: String? = null) {
         startTimeMs = System.currentTimeMillis()
         pausedDurationMs = 0L
         pauseStartMs = 0L
-        isManualPaused = false
-        isAutoPaused = false
         rideId = dao.insertRide(
             RideEntity(
                 startTime = startTimeMs,
@@ -93,7 +92,6 @@ class RideEngine(
             )
         )
         state = State.RECORDING
-        autoPauseController.reset()
         previous = null
         distance = 0.0
         gain = 0.0
@@ -103,31 +101,33 @@ class RideEngine(
         speedSum = 0.0
         speedCount = 0
         latestHr = null
-        _metrics.value = RideMetrics(isAutoPauseEnabled = autoPauseController.isEnabled)
+        latestAltitude = null
+        previousAltitude = null
+        currentSpeedMps = 0.0
+        latestGradient = null
+        _metrics.value = RideMetrics()
         ActiveRideRepository.updateMetrics(_metrics.value)
+        startTimer()
     }
 
     fun pause() {
         if (state == State.RECORDING) {
             state = State.PAUSED
-            isManualPaused = true
-            isAutoPaused = false
             pauseStartMs = System.currentTimeMillis()
-            updateMetrics(0.0, null, null)
+            stopTimer()
+            updateMetrics(0.0, latestAltitude, latestGradient)
         }
     }
 
     fun resume() {
         if (state == State.PAUSED) {
             state = State.RECORDING
-            isManualPaused = false
-            isAutoPaused = false
             if (pauseStartMs > 0L) {
                 pausedDurationMs += System.currentTimeMillis() - pauseStartMs
                 pauseStartMs = 0L
             }
-            autoPauseController.reset()
-            updateMetrics(0.0, null, null)
+            startTimer()
+            updateMetrics(0.0, latestAltitude, latestGradient)
         }
     }
 
@@ -150,62 +150,26 @@ class RideEngine(
             avgSpeedKmh = avgSpeedMps * 3.6,
             altitudeMeters = altitude,
             gradientPercent = gradient,
-            heartRate = latestHr,
-            isAutoPaused = isAutoPaused,
-            isAutoPauseEnabled = autoPauseController.isEnabled
+            heartRate = latestHr
         )
         _metrics.value = metrics
         ActiveRideRepository.updateMetrics(metrics)
     }
 
     fun onLocation(location: Location) {
-        val speedMps = if (location.hasSpeed()) location.speed.toDouble() else 0.0
-        val now = System.currentTimeMillis()
+        val currentAltitude = if (location.hasAltitude()) location.altitude else latestAltitude
 
-        // 1. Evaluasi Auto Pause / Resume
-        val action = autoPauseController.update(
-            speedMps = speedMps,
-            now = now,
-            isRecording = (state == State.RECORDING),
-            isPaused = (state == State.PAUSED),
-            isManualPaused = isManualPaused
-        )
-
-        when (action) {
-            AutoPauseController.Action.PAUSE -> {
-                if (state == State.RECORDING) {
-                    state = State.PAUSED
-                    isAutoPaused = true
-                    isManualPaused = false
-                    pauseStartMs = now
-                    updateMetrics(0.0, if (location.hasAltitude()) location.altitude else null, null)
-                }
-                return
+        if (state != State.RECORDING) {
+            if (currentAltitude != null) {
+                latestAltitude = currentAltitude
             }
-            AutoPauseController.Action.RESUME -> {
-                if (state == State.PAUSED && isAutoPaused) {
-                    state = State.RECORDING
-                    isAutoPaused = false
-                    isManualPaused = false
-                    if (pauseStartMs > 0L) {
-                        pausedDurationMs += now - pauseStartMs
-                        pauseStartMs = 0L
-                    }
-                    autoPauseController.reset()
-                    updateMetrics(speedMps, if (location.hasAltitude()) location.altitude else null, null)
-                }
-            }
-            AutoPauseController.Action.NONE -> {
-                if (state != State.RECORDING) {
-                    updateMetrics(0.0, if (location.hasAltitude()) location.altitude else null, null)
-                    return
-                }
-            }
+            updateMetrics(0.0, latestAltitude, latestGradient)
+            return
         }
 
         val old = previous
-        var gradient: Double? = null
-        var currentSpeedMps = 0.0
+        var gradient: Double? = latestGradient
+        var speedMpsCalculated = 0.0
 
         if (old != null) {
             val d = GeoUtils.distanceMeters(
@@ -217,30 +181,36 @@ class RideEngine(
                 distance += d
                 val dt = (location.time - old.time).coerceAtLeast(1L) / 1000.0
                 val speed = if (location.hasSpeed()) location.speed.toDouble() else d / dt
-                currentSpeedMps = speed
+                speedMpsCalculated = speed
 
                 speedSum += speed
                 speedCount++
                 maxSpeed = maxOf(maxSpeed, speed)
 
-                if (location.hasAltitude() && old.hasAltitude()) {
-                    val dz = location.altitude - old.altitude
+                val prevAlt = previousAltitude ?: currentAltitude
+                if (currentAltitude != null && prevAlt != null) {
+                    val dz = currentAltitude - prevAlt
                     if (abs(dz) < 10.0) {
                         if (dz > 0) gain += dz else loss += -dz
                     }
-                    if (d > 3.0) {
+                    if (d > 1.0) {
                         gradient = GeoUtils.gradientPercent(d, dz)
+                        latestGradient = gradient
                     }
                 }
             }
         }
 
-        if (location.hasAltitude()) {
-            maxAltitude = maxOf(maxAltitude ?: location.altitude, location.altitude)
+        if (currentAltitude != null) {
+            previousAltitude = latestAltitude ?: currentAltitude
+            latestAltitude = currentAltitude
+            maxAltitude = maxOf(maxAltitude ?: currentAltitude, currentAltitude)
         }
 
+        currentSpeedMps = speedMpsCalculated
+
         val speedToSave = if (location.hasSpeed()) location.speed.toDouble() else null
-        val altitudeToSave = if (location.hasAltitude()) location.altitude else null
+        val altitudeToSave = currentAltitude
 
         updateMetrics(currentSpeedMps, altitudeToSave, gradient)
 
@@ -263,6 +233,7 @@ class RideEngine(
 
     suspend fun finish() {
         if (state == State.IDLE || state == State.FINISHED) return
+        stopTimer()
         val end = System.currentTimeMillis()
         val old = dao.getRide(rideId) ?: return
 

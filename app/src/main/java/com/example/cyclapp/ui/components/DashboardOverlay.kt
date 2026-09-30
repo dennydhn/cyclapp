@@ -43,21 +43,6 @@ fun DashboardOverlay(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            // Indikator Status Auto Paused (jika aktif)
-            if (metrics.isAutoPaused) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
-                    horizontalArrangement = Arrangement.Start
-                ) {
-                    Text(
-                        text = "⏸ AUTO PAUSED",
-                        color = Color(0xFFE65100),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
             // Baris Utama: Kecepatan Saat Ini (SPEED)
             Row(
                 modifier = Modifier.fillMaxWidth(),
