@@ -70,6 +70,11 @@ class ComposeMapProvider : MapProvider {
         isAutoCenterEnabled = true
     }
 
+    fun clearRecordedTrack() {
+        recordedTrackPoints = emptyList()
+        recenter()
+    }
+
     override fun clearRoute() {
         recordedTrackPoints = emptyList()
         importedRoutePoints = emptyList()

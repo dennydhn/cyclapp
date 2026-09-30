@@ -8,6 +8,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -152,3 +153,95 @@ fun ElevationAnalyticsChart(
         }
     }
 }
+
+@Composable
+fun HeartRateAnalyticsChart(
+    points: List<TrackPointEntity>,
+    modifier: Modifier = Modifier
+) {
+    val hrData = points.mapNotNull { it.heartRate }
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "GRAFIK DENYUT JANTUNG (BPM)",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (hrData.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp)
+                        .background(Color(0xFFF8F9FA)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Tidak ada data denyut jantung (Sensor HR tidak terhubung)",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+            } else {
+                val minHr = hrData.minOrNull() ?: 60
+                val maxHr = hrData.maxOrNull()?.coerceAtLeast(minHr + 20) ?: 180
+                val rangeHr = (maxHr - minHr).coerceAtLeast(1)
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .background(Color(0xFFF8F9FA))
+                ) {
+                    if (hrData.size < 2) return@Canvas
+
+                    val width = size.width
+                    val height = size.height
+                    val stepX = width / (hrData.size - 1)
+
+                    val path = Path()
+                    hrData.forEachIndexed { index, hr ->
+                        val x = index * stepX
+                        val normalizedY = ((hr - minHr).toFloat() / rangeHr.toFloat())
+                        val y = height - (normalizedY * (height - 20f)) - 10f
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+
+                    drawPath(
+                        path = path,
+                        color = Color(0xFFD32F2F),
+                        style = Stroke(width = 4f, cap = StrokeCap.Round)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = String.format(Locale.US, "Min: %d bpm", minErr(minHr)),
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = String.format(Locale.US, "Max: %d bpm", maxHr),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFD32F2F)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun minErr(v: Int) = v

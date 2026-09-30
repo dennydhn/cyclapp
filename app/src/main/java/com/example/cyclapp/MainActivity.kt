@@ -201,7 +201,6 @@ fun RideControlScreen(
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var showGpxDialog by remember { mutableStateOf(false) }
 
     val currentMetrics by ActiveRideRepository.metrics.collectAsState()
 
@@ -219,29 +218,6 @@ fun RideControlScreen(
                         Toast.makeText(context, "Berhasil memuat GPX (${importedTrack.size} titik)", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Gagal memuat file GPX!", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-    }
-
-    // Launcher untuk Export File GPX
-    val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
-    ) { uri ->
-        uri?.let { destinationUri ->
-            coroutineScope.launch(Dispatchers.IO) {
-                val dao = DatabaseProvider.get(context).rideDao()
-                val rides = dao.getRides()
-                if (rides.isNotEmpty()) {
-                    val latestRide = rides.first()
-                    val points = dao.getTrackPoints(latestRide.id)
-                    val gpxContent = GpxExporter.export(latestRide.routeName ?: "Ride", points)
-                    context.contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
-                        outputStream.write(gpxContent.toByteArray())
-                    }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "File GPX berhasil diekspor!", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -309,73 +285,6 @@ fun RideControlScreen(
         )
     }
 
-    // GPX Import/Export Dialog (Latar belakang abu-abu)
-    if (showGpxDialog) {
-        AlertDialog(
-            onDismissRequest = { showGpxDialog = false },
-            containerColor = if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFEFEFEF),
-            title = {
-                Text(
-                    "Import / Ekspor GPX",
-                    color = if (isDarkMode) Color.White else Color.Black
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = {
-                            showGpxDialog = false
-                            openDocumentLauncher.launch(arrayOf("*/*"))
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Import GPX")
-                    }
-                    Button(
-                        onClick = {
-                            showGpxDialog = false
-                            coroutineScope.launch(Dispatchers.IO) {
-                                val dao = DatabaseProvider.get(context).rideDao()
-                                val rides = dao.getRides()
-                                withContext(Dispatchers.Main) {
-                                    if (rides.isEmpty()) {
-                                        Toast.makeText(context, "Belum ada riwayat ride!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        createDocumentLauncher.launch("ride_export_${System.currentTimeMillis()}.gpx")
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Ekspor GPX Terakhir")
-                    }
-                    if (mapProvider.importedRoutePoints.isNotEmpty()) {
-                        OutlinedButton(
-                            onClick = {
-                                showGpxDialog = false
-                                mapProvider.removeImportedRoute()
-                                Toast.makeText(context, "Rute GPX dihapus dari peta!", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD32F2F))
-                        ) {
-                            Text("Hapus Rute GPX di Peta")
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showGpxDialog = false }) {
-                    Text(
-                        "Tutup",
-                        color = if (isDarkMode) Color(0xFF64B5F6) else MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        )
-    }
-
     // Root Box: Kanvas Peta mengisi seluruh layar, Dashboard & Tombol Melayang di atasnya
     Box(modifier = modifier.fillMaxSize()) {
         // 1. Peta Canvas Native mengisi SELURUH layar
@@ -424,12 +333,22 @@ fun RideControlScreen(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Import/Ekspor GPX", color = if (isDarkMode) Color(0xFFE0E0E0) else Color.Black) },
+                        text = { Text("Import GPX", color = if (isDarkMode) Color(0xFFE0E0E0) else Color.Black) },
                         onClick = {
                             menuExpanded = false
-                            showGpxDialog = true
+                            openDocumentLauncher.launch(arrayOf("*/*"))
                         }
                     )
+                    if (mapProvider.importedRoutePoints.isNotEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("Hapus Rute GPX di Peta", color = Color(0xFFD32F2F)) },
+                            onClick = {
+                                menuExpanded = false
+                                mapProvider.removeImportedRoute()
+                                Toast.makeText(context, "Rute GPX dihapus dari peta!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Riwayat Perekaman", color = if (isDarkMode) Color(0xFFE0E0E0) else Color.Black) },
                         onClick = {
@@ -497,7 +416,7 @@ fun RideControlScreen(
                     Button(
                         onClick = {
                             if (!isRecording) {
-                                mapProvider.clearRoute()
+                                mapProvider.clearRecordedTrack()
                                 val intent = Intent(context, RideService::class.java).apply {
                                     action = RideService.ACTION_START
                                     putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())

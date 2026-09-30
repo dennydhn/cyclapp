@@ -7,8 +7,8 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [RideEntity::class, TrackPointEntity::class],
-    version = 1,
-    exportSchema = true
+    version = 2,
+    exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun rideDao(): RideDao
@@ -23,7 +23,9 @@ object DatabaseProvider {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cycle_tracker.db"
-            ).build().also { instance = it }
+            )
+            .fallbackToDestructiveMigration()
+            .build().also { instance = it }
         }
     }
 }
