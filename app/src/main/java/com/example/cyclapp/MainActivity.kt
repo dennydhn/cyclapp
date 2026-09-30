@@ -416,7 +416,7 @@ fun RideControlScreen(
                     Button(
                         onClick = {
                             if (!isRecording) {
-                                mapProvider.clearRoute()
+                                mapProvider.clearRecordedTrack()
                                 val intent = Intent(context, RideService::class.java).apply {
                                     action = RideService.ACTION_START
                                     putExtra(RideService.EXTRA_ROUTE, "Ride " + System.currentTimeMillis())
