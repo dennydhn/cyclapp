@@ -8,7 +8,14 @@ object ActiveRideRepository {
     private val _metrics = MutableStateFlow(RideMetrics())
     val metrics: StateFlow<RideMetrics> = _metrics.asStateFlow()
 
+    private val _hrStatus = MutableStateFlow("Siap Terhubung")
+    val hrStatus: StateFlow<String> = _hrStatus.asStateFlow()
+
     fun updateMetrics(metrics: RideMetrics) {
         _metrics.value = metrics
+    }
+
+    fun updateHrStatus(status: String) {
+        _hrStatus.value = status
     }
 }

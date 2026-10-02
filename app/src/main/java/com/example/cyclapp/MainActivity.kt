@@ -42,6 +42,7 @@ import com.example.cyclapp.ride.RideService
 import com.example.cyclapp.ui.RideDetailScreen
 import com.example.cyclapp.ui.RideHistoryScreen
 import com.example.cyclapp.ui.components.DashboardOverlay
+import com.example.cyclapp.ui.components.HeartRateMonitorView
 import com.example.cyclapp.ui.components.NativeMapView
 import com.example.cyclapp.ui.theme.CyclappTheme
 import kotlinx.coroutines.Dispatchers
@@ -203,8 +204,10 @@ fun RideControlScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showGpsDebug by remember { mutableStateOf(true) }
+    var isHrMonitoringMode by remember { mutableStateOf(false) }
 
     val currentMetrics by ActiveRideRepository.metrics.collectAsState()
+    val hrStatus by ActiveRideRepository.hrStatus.collectAsState()
 
     // Start LocationTracker saat idle (belum recording) agar peta & koordinat debug ter-update langsung saat app dibuka
     DisposableEffect(isRecording) {
@@ -305,6 +308,22 @@ fun RideControlScreen(
                             onCheckedChange = { showGpsDebug = it }
                         )
                     }
+
+                    // HR Monitoring Mode Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Mode Monitoring HR (Tanpa Peta)",
+                            color = if (isDarkMode) Color.White else Color.Black
+                        )
+                        Switch(
+                            checked = isHrMonitoringMode,
+                            onCheckedChange = { isHrMonitoringMode = it }
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -318,14 +337,26 @@ fun RideControlScreen(
         )
     }
 
-    // Root Box: Kanvas Peta mengisi seluruh layar, Dashboard & Tombol Melayang di atasnya
+    // Root Box: Kanvas Peta atau Mode HR Monitoring mengisi layar, Tombol Melayang di atasnya
     Box(modifier = modifier.fillMaxSize()) {
-        // 1. Peta Canvas Native mengisi SELURUH layar
-        NativeMapView(
-            mapProvider = mapProvider,
-            isDarkMode = isDarkMode,
-            modifier = Modifier.fillMaxSize()
-        )
+        // 1. Tampilan Utama: Peta atau Mode HR Focus Monitoring
+        if (isHrMonitoringMode) {
+            HeartRateMonitorView(
+                metrics = currentMetrics,
+                hrStatus = hrStatus,
+                isDarkMode = isDarkMode,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 70.dp)
+            )
+        } else {
+            // Peta Canvas Native mengisi SELURUH layar
+            NativeMapView(
+                mapProvider = mapProvider,
+                isDarkMode = isDarkMode,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // 2. Top Bar Overlay (Tombol Menu 3 Garis di pojok kiri atas)
         Box(
@@ -352,12 +383,24 @@ fun RideControlScreen(
                     )
                 }
 
-                // Dropdown Menu dengan latar belakang abu-abu
+                // Dropdown Menu
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
                     modifier = Modifier.background(if (isDarkMode) Color(0xFF2D2D2D) else Color(0xFFEFEFEF))
                 ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (isHrMonitoringMode) "Mode Peta (Map Mode)" else "Mode HR Monitoring",
+                                color = if (isDarkMode) Color.White else Color.Black
+                            )
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            isHrMonitoringMode = !isHrMonitoringMode
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Setelan", color = if (isDarkMode) Color.White else Color.Black) },
                         onClick = {
@@ -393,8 +436,8 @@ fun RideControlScreen(
             }
         }
 
-        // 3. Tombol Recenter (Crosshair Icon, Latar Abu-abu, Tanpa Teks) di kanan atas
-        if (!mapProvider.isAutoCenterEnabled) {
+        // 3. Tombol Recenter (Crosshair Icon) - Hanya muncul di Mode Peta
+        if (!isHrMonitoringMode && !mapProvider.isAutoCenterEnabled) {
             IconButton(
                 onClick = { mapProvider.recenter() },
                 modifier = Modifier
@@ -413,7 +456,7 @@ fun RideControlScreen(
             }
         }
 
-        // 4. Panel Dashboard & Tombol Kontrol MELAYANG di bagian bawah atas Peta
+        // 4. Panel Dashboard & Tombol Kontrol MELAYANG di bagian bawah
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -421,15 +464,18 @@ fun RideControlScreen(
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Dashboard Metrik Data Melayang
-            DashboardOverlay(
-                metrics = currentMetrics,
-                isDarkMode = isDarkMode,
-                showGpsDebug = showGpsDebug,
-                fallbackLat = mapProvider.userLat,
-                fallbackLng = mapProvider.userLng,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // Dashboard Metrik Data Melayang (Hanya di Mode Peta)
+            if (!isHrMonitoringMode) {
+                DashboardOverlay(
+                    metrics = currentMetrics,
+                    isDarkMode = isDarkMode,
+                    showGpsDebug = showGpsDebug,
+                    fallbackLat = mapProvider.userLat,
+                    fallbackLng = mapProvider.userLng,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
 
             Spacer(modifier = Modifier.height(6.dp))
 

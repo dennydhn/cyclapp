@@ -34,6 +34,7 @@ class RideService : Service() {
             },
             onConnectionStateChanged = { stateString ->
                 Log.d("RideService", "BLE HR Status: $stateString")
+                ActiveRideRepository.updateHrStatus(stateString)
             }
         )
 
