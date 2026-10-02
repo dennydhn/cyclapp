@@ -35,7 +35,7 @@ class LocationTracker(
             Priority.PRIORITY_HIGH_ACCURACY, 2000L // Interval update setiap 2 detik
         ).apply {
             setMinUpdateIntervalMillis(1000L) // Paling cepat 1 detik
-            setMinUpdateDistanceMeters(1f)   // Berpindah minimal 1 meter
+            setMinUpdateDistanceMeters(0f)   // Biarkan semua update diproses dan difilter oleh RideEngine
             setWaitForAccurateLocation(false) // Mencegah status stuck "Mencari GPS"
         }.build()
 

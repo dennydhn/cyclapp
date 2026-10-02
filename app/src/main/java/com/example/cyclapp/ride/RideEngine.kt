@@ -22,7 +22,12 @@ data class RideMetrics(
     val avgSpeedKmh: Double = 0.0,
     val altitudeMeters: Double? = null,
     val gradientPercent: Double? = null,
-    val heartRate: Int? = null
+    val heartRate: Int? = null,
+    val currentLat: Double? = null,
+    val currentLng: Double? = null,
+    val gpsAccuracyMeters: Float? = null,
+    val locationUpdateCount: Int = 0,
+    val lastLocationTimeMs: Long = 0L
 )
 
 class RideEngine(
@@ -53,6 +58,12 @@ class RideEngine(
     private var currentSpeedMps: Double = 0.0
     private var latestGradient: Double? = null
     private var timerJob: Job? = null
+
+    private var currentLat: Double? = null
+    private var currentLng: Double? = null
+    private var gpsAccuracy: Float? = null
+    private var locationUpdateCount = 0
+    private var lastLocationTimeMs = 0L
 
     // StateFlow untuk diobservasi oleh Dashboard Overlay UI secara real-time
     private val _metrics = MutableStateFlow(RideMetrics())
@@ -105,6 +116,11 @@ class RideEngine(
         previousAltitude = null
         currentSpeedMps = 0.0
         latestGradient = null
+        currentLat = null
+        currentLng = null
+        gpsAccuracy = null
+        locationUpdateCount = 0
+        lastLocationTimeMs = 0L
         _metrics.value = RideMetrics()
         ActiveRideRepository.updateMetrics(_metrics.value)
         startTimer()
@@ -150,13 +166,24 @@ class RideEngine(
             avgSpeedKmh = avgSpeedMps * 3.6,
             altitudeMeters = altitude,
             gradientPercent = gradient,
-            heartRate = latestHr
+            heartRate = latestHr,
+            currentLat = currentLat,
+            currentLng = currentLng,
+            gpsAccuracyMeters = gpsAccuracy,
+            locationUpdateCount = locationUpdateCount,
+            lastLocationTimeMs = lastLocationTimeMs
         )
         _metrics.value = metrics
         ActiveRideRepository.updateMetrics(metrics)
     }
 
     fun onLocation(location: Location) {
+        currentLat = location.latitude
+        currentLng = location.longitude
+        gpsAccuracy = if (location.hasAccuracy()) location.accuracy else null
+        locationUpdateCount++
+        lastLocationTimeMs = System.currentTimeMillis()
+
         val currentAltitude = if (location.hasAltitude()) location.altitude else latestAltitude
 
         if (state != State.RECORDING) {
@@ -171,16 +198,24 @@ class RideEngine(
         var gradient: Double? = latestGradient
         var speedMpsCalculated = 0.0
 
-        if (old != null) {
+        if (old == null) {
+            // Titik awal perekaman
+            previous = location
+        } else {
             val d = GeoUtils.distanceMeters(
                 old.latitude, old.longitude,
                 location.latitude, location.longitude
             )
-            // Filter perubahan GPS ekstrem
-            if (d in 0.5..100.0) {
+            val dt = ((location.time - old.time) / 1000.0).coerceAtLeast(0.1)
+            val speed = if (location.hasSpeed() && location.speed > 0f) location.speed.toDouble() else d / dt
+
+            // Filter kecepatan yang tidak masuk akal (teleportasi/glitch > 180 km/h atau 50 m/s)
+            if (speed > 50.0) {
+                // Reset 'previous' ke titik baru tanpa menambah jarak akumulasi (menghindari garis loncat jauh)
+                previous = location
+            } else if (d >= 0.5) {
+                // Update jarak jika perpindahan >= 0.5 meter
                 distance += d
-                val dt = (location.time - old.time).coerceAtLeast(1L) / 1000.0
-                val speed = if (location.hasSpeed()) location.speed.toDouble() else d / dt
                 speedMpsCalculated = speed
 
                 speedSum += speed
@@ -198,6 +233,12 @@ class RideEngine(
                         latestGradient = gradient
                     }
                 }
+                // HANYA update 'previous' ketika pergerakan valid diterima (d >= 0.5m)
+                previous = location
+            } else {
+                // Jika pergerakan < 0.5m (jitter / sangat pelan), 'previous' TIDAK diubah
+                // agar perpindahan kecil dapat terakumulasi pada update berikutnya.
+                speedMpsCalculated = if (location.hasSpeed() && location.speed > 0.2f) location.speed.toDouble() else 0.0
             }
         }
 
@@ -228,7 +269,6 @@ class RideEngine(
                 )
             )
         }
-        previous = location
     }
 
     suspend fun finish() {

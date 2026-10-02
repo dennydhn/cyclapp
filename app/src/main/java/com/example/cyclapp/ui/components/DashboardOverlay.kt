@@ -14,13 +14,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cyclapp.ride.RideMetrics
+import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
 fun DashboardOverlay(
     metrics: RideMetrics,
     modifier: Modifier = Modifier,
-    isDarkMode: Boolean = false
+    isDarkMode: Boolean = false,
+    showGpsDebug: Boolean = true,
+    fallbackLat: Double? = null,
+    fallbackLng: Double? = null
 ) {
     val containerColor = if (isDarkMode) Color(0xFF242424).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f)
     val textColor = if (isDarkMode) Color.White else Color(0xFF212121)
@@ -136,6 +140,71 @@ fun DashboardOverlay(
                     textColor = textColor,
                     labelColor = labelColor
                 )
+            }
+
+            // Panel Debugging GPS Live
+            if (showGpsDebug) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(dividerColor)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (isDarkMode) Color(0xFF1E1E1E) else Color(0xFFF0F4F8),
+                            RoundedCornerShape(6.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val latToDisplay = metrics.currentLat ?: fallbackLat
+                    val lngToDisplay = metrics.currentLng ?: fallbackLng
+
+                    if (latToDisplay != null && lngToDisplay != null) {
+                        val timeString = if (metrics.lastLocationTimeMs > 0) {
+                            val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                            sdf.format(Date(metrics.lastLocationTimeMs))
+                        } else "Live"
+
+                        val accuracyText = metrics.gpsAccuracyMeters?.let { String.format(Locale.US, "±%.1fm", it) } ?: "±--m"
+
+                        Column {
+                            Text(
+                                text = "GPS DEBUG (${metrics.locationUpdateCount} pts @ $timeString)",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = speedColor
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = String.format(
+                                    Locale.US,
+                                    "Lat: %.6f | Lng: %.6f (%s)",
+                                    latToDisplay,
+                                    lngToDisplay,
+                                    accuracyText
+                                ),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = textColor
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "GPS DEBUG: Menunggu Sinyal GPS...",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = labelColor
+                        )
+                    }
+                }
             }
         }
     }

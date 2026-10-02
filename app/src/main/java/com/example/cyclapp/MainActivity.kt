@@ -35,6 +35,7 @@ import com.example.cyclapp.data.db.DatabaseProvider
 import com.example.cyclapp.gpx.GpxExporter
 import com.example.cyclapp.gpx.GpxImporter
 import com.example.cyclapp.gpx.GpxPoint
+import com.example.cyclapp.location.LocationTracker
 import com.example.cyclapp.map.ComposeMapProvider
 import com.example.cyclapp.ride.ActiveRideRepository
 import com.example.cyclapp.ride.RideService
@@ -201,8 +202,24 @@ fun RideControlScreen(
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showGpsDebug by remember { mutableStateOf(true) }
 
     val currentMetrics by ActiveRideRepository.metrics.collectAsState()
+
+    // Start LocationTracker saat idle (belum recording) agar peta & koordinat debug ter-update langsung saat app dibuka
+    DisposableEffect(isRecording) {
+        if (!isRecording) {
+            val idleTracker = LocationTracker(context) { location ->
+                mapProvider.showUserLocation(location.latitude, location.longitude)
+            }
+            idleTracker.start()
+            onDispose {
+                idleTracker.stop()
+            }
+        } else {
+            onDispose { }
+        }
+    }
 
     // Launcher untuk Import File GPX
     val openDocumentLauncher = rememberLauncherForActivityResult(
@@ -270,6 +287,22 @@ fun RideControlScreen(
                         Switch(
                             checked = isDarkMode,
                             onCheckedChange = { onDarkModeChanged(it) }
+                        )
+                    }
+
+                    // GPS Debug Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Debug GPS (Koordinat)",
+                            color = if (isDarkMode) Color.White else Color.Black
+                        )
+                        Switch(
+                            checked = showGpsDebug,
+                            onCheckedChange = { showGpsDebug = it }
                         )
                     }
                 }
@@ -392,6 +425,9 @@ fun RideControlScreen(
             DashboardOverlay(
                 metrics = currentMetrics,
                 isDarkMode = isDarkMode,
+                showGpsDebug = showGpsDebug,
+                fallbackLat = mapProvider.userLat,
+                fallbackLng = mapProvider.userLng,
                 modifier = Modifier.fillMaxWidth()
             )
 
